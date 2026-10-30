@@ -29,6 +29,10 @@ func isProtected(dir string) bool {
 }
 
 func removeOne(pkg *Pkg, logf *os.File) error {
+	script := filepath.Join(dbDir, pkg.Pkgname+".remove")
+	if err := runRemoveScript(script, "pre-remove", pkg, logf); err != nil {
+		return err
+	}
 	svc := rootJoin(filepath.Join("/var/service", pkg.Pkgname))
 	if _, err := os.Lstat(svc); err == nil {
 		_ = runCmd(logf, "sv", "stop", pkg.Pkgname)
@@ -55,6 +59,10 @@ func removeOne(pkg *Pkg, logf *os.File) error {
 			_ = os.Remove(dir)
 		}
 	}
+	if err := runRemoveScript(script, "post-remove", pkg, logf); err != nil {
+		return err
+	}
+	_ = os.Remove(script)
 	_ = os.Remove(filepath.Join(dbDir, pkg.Pkgname+".json"))
 
 	list, _ := readInstalled()

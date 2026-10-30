@@ -320,6 +320,10 @@ func cmdInstall(cfg *Config, args []string) error {
 		return nil
 	}
 
+	if err := checkConflicts(order, inst); err != nil {
+		return err
+	}
+
 	items := make([]string, len(order))
 	for i, p := range order {
 		items[i] = p.Pkgname + "-" + p.Version
@@ -440,6 +444,10 @@ func cmdUpgrade(cfg *Config, args []string) error {
 		return nil
 	}
 
+	if err := checkConflicts(order, inst); err != nil {
+		return err
+	}
+
 	items := make([]string, len(order))
 	for i, p := range order {
 		items[i] = p.Pkgname + "-" + p.Version
@@ -537,7 +545,7 @@ func cmdRepair(cfg *Config) error {
 			if err != nil {
 				return err
 			}
-			if err := runInstallScript(archive, "POST-INSTALL", q.Update, p, logf); err != nil {
+			if err := runInstallScript(archive, "post", q.Update, p, logf); err != nil {
 				return err
 			}
 			pkg, err := readPkg(q.Name)

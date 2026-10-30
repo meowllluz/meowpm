@@ -138,6 +138,20 @@ func (rc *RepoCache) resolveReal(req string) (string, error) {
 	return p.Pkgname, nil
 }
 
+// checkConflicts возвращает ошибку, если устанавливаемый пакет конфликтует
+// с уже установленным (по имени пакета).
+func checkConflicts(order []*RepoPkg, inst map[string]string) error {
+	for _, p := range order {
+		for _, c := range p.Conflicts {
+			cn, _ := parseDep(c)
+			if v, ok := inst[cn]; ok {
+				return fmt.Errorf("package %s conflicts with installed %s-%s", p.Pkgname, cn, v)
+			}
+		}
+	}
+	return nil
+}
+
 // resolveOrder: трёхцветный итеративный DFS. Цикл детектится по реальному
 // имени пакета (не по виртуальному provide-имени).
 func resolveOrder(rc *RepoCache, cfg *Config, targets []string) ([]*RepoPkg, error) {

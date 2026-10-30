@@ -61,10 +61,7 @@ func parseFilesPlist(data []byte) (map[string]FileInfo, error) {
 			if !strings.HasPrefix(p, "/") {
 				p = "/" + p
 			}
-			out[p] = FileInfo{
-				Mode:   dictStr(m, "mode"),
-				SHA256: dictStr(m, "sha256"),
-			}
+			out[p] = FileInfo{SHA256: dictStr(m, "sha256")}
 		}
 	}
 	return out, nil
@@ -286,19 +283,21 @@ func distribute(tmpdir string, files map[string]FileInfo, logf *os.File) (map[st
 	return out, err
 }
 
-func runInstallScript(archive, action string, update bool, p *RepoPkg, logf *os.File) error {
+// execScript запускает shell-скрипт пакета по XBPS-контракту:
+// sh <script> <phase> <update>, phase ∈ {pre,post,pre-remove,post-remove},
+// update ∈ {yes,no}. Env: PKGNAME, VERSION, UPDATE.
+func execScript(data []byte, phase string, update bool, pkgname, version string, logf *os.File) error {
 	if rootDir != "" {
-		fmt.Fprintf(logf, "skipping %s script under --root\n", action)
+		fmt.Fprintf(logf, "skipping %s script under --root\n", phase)
+		return nil
+	}
+	if len(data) == 0 {
 		return nil
 	}
 	if err := checkInterrupted(); err != nil {
 		return err
 	}
-	data, err := readFromArchive(archive, "INSTALL")
-	if err != nil || len(data) == 0 {
-		return nil
-	}
-	tmp, err := os.CreateTemp("", "meow-install-*")
+	tmp, err := os.CreateTemp("", "meow-script-*")
 	if err != nil {
 		return err
 	}
@@ -310,12 +309,10 @@ func runInstallScript(archive, action string, update bool, p *RepoPkg, logf *os.
 	tmp.Close()
 	os.Chmod(tmp.Name(), 0755)
 
-	cmd := exec.Command("sh", tmp.Name(), action, "yes")
+	cmd := exec.Command("sh", tmp.Name(), phase, boolStr(update))
 	cmd.Env = append(os.Environ(),
-		"PKG_DESTDIR=/",
-		"ACTION="+strings.ToLower(strings.TrimSuffix(action, "-INSTALL"))+"install",
-		"PKGNAME="+p.Pkgname,
-		"VERSION="+p.Version,
+		"PKGNAME="+pkgname,
+		"VERSION="+version,
 		"UPDATE="+boolStr(update),
 	)
 	cmd.Stdout = logf
@@ -327,6 +324,22 @@ func runInstallScript(archive, action string, update bool, p *RepoPkg, logf *os.
 		return err
 	}
 	return checkInterrupted()
+}
+
+func runInstallScript(archive, phase string, update bool, p *RepoPkg, logf *os.File) error {
+	data, err := readFromArchive(archive, "INSTALL")
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return execScript(data, phase, update, p.Pkgname, p.Version, logf)
+}
+
+func runRemoveScript(scriptPath, phase string, pkg *Pkg, logf *os.File) error {
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return nil // REMOVE-скрипта нет
+	}
+	return execScript(data, phase, false, pkg.Pkgname, pkg.Version, logf)
 }
 
 func boolStr(b bool) string {
@@ -439,6 +452,12 @@ func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx
 	if err != nil {
 		return err
 	}
+	// Сохраняем REMOVE-скрипт (если есть) для выполнения при удалении.
+	if data, err := readFromArchive(archive, "REMOVE"); err == nil && len(data) > 0 {
+		if err := atomicWrite(filepath.Join(dbDir, p.Pkgname+".remove"), data); err != nil {
+			return err
+		}
+	}
 	filesData, err := readFromArchive(archive, "files.plist")
 	if err != nil {
 		return err
@@ -461,7 +480,7 @@ func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx
 	if err := j.setPhase(idx, "pre-install"); err != nil {
 		return err
 	}
-	if err := runInstallScript(archive, "PRE-INSTALL", update, p, logf); err != nil {
+	if err := runInstallScript(archive, "pre", update, p, logf); err != nil {
 		return err
 	}
 	if err := checkInterrupted(); err != nil {
@@ -522,6 +541,16 @@ func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx
 	if update {
 		if old, err := readPkg(p.Pkgname); err == nil {
 			pkg.Auto = old.Auto
+			// Удаляем файлы, которых больше нет в новой версии (кроме изменённых конфигов).
+			for oldPath, fi := range old.Files {
+				if _, ok := placed[oldPath]; ok {
+					continue
+				}
+				if strings.HasPrefix(oldPath, "/etc/") && fi.SHA256 != "" {
+					continue
+				}
+				_ = os.Remove(rootJoin(oldPath))
+			}
 		} else {
 			fmt.Fprintf(logf, "warning: update=true but %s missing from DB, treating as fresh install\n", p.Pkgname)
 		}
@@ -536,7 +565,7 @@ func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx
 	if err := j.setPhase(idx, "post-install"); err != nil {
 		return err
 	}
-	if err := runInstallScript(archive, "POST-INSTALL", update, p, logf); err != nil {
+	if err := runInstallScript(archive, "post", update, p, logf); err != nil {
 		if errors.Is(err, ErrInterrupted) {
 			return err
 		}
