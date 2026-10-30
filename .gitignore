@@ -1,0 +1,8 @@
+# скомпилированный бинарник
+/meow
+
+# мусор Dolphin
+.directory
+
+# vendored-зависимости — не коммитим, качаются по go.mod/go.sum
+/vendor/
