@@ -12,8 +12,9 @@ var kernelRe = regexp.MustCompile(`^linux[0-9]*$`)
 // emitWarnings prints small orange warnings to stderr (or logf if not a tty).
 // Lowercase, no bold. ESCALATOR из конфига подставляется как есть.
 func emitWarnings(cfg *Config, pkgs []*Pkg, logf *os.File) {
+	useColor := isatty(os.Stderr.Fd())
 	w := os.Stderr
-	if !isatty(os.Stderr.Fd()) {
+	if !useColor {
 		w = logf
 	}
 	if w == nil {
@@ -25,7 +26,11 @@ func emitWarnings(cfg *Config, pkgs []*Pkg, logf *os.File) {
 			return
 		}
 		seen[key] = true
-		fmt.Fprintf(w, "\033[38;5;208m%s\033[0m\n", msg)
+		if useColor {
+			fmt.Fprintf(w, "\033[38;5;208m%s\033[0m\n", msg)
+		} else {
+			fmt.Fprintln(w, msg)
+		}
 	}
 	esc := cfg.Escalator
 	for _, p := range pkgs {

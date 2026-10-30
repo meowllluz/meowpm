@@ -12,11 +12,35 @@ import (
 	"unsafe"
 )
 
-const (
-	dbDir    = "/var/db/meow"
-	cacheDir = "/var/cache/meow"
-	confDir  = "/etc/meow"
+var (
+	dbDir    string
+	cacheDir string
+	confDir  string
+	rootDir  string // пустая = реальный корень; иначе путь к alt-root (готовой ОС) для тестов
 )
+
+// initPaths вычисляет пути БД/кеша/конфига в зависимости от rootDir.
+// Должна вызываться до любого использования dbDir/cacheDir/confDir.
+func initPaths() {
+	if rootDir == "" {
+		dbDir = "/var/db/meow"
+		cacheDir = "/var/cache/meow"
+		confDir = "/etc/meow"
+		return
+	}
+	dbDir = filepath.Join(rootDir, "var/db/meow")
+	cacheDir = "/var/cache/meow" // кеш загрузок общий с хостом
+	confDir = filepath.Join(rootDir, "etc/meow")
+}
+
+// rootJoin подставляет rootDir как префикс к абсолютному пути ("/usr/bin/x" →
+// "<root>/usr/bin/x"). При пустом rootDir возвращает путь как есть.
+func rootJoin(path string) string {
+	if rootDir == "" {
+		return path
+	}
+	return filepath.Join(rootDir, path)
+}
 
 var (
 	ErrInterrupted = errors.New("interrupted")

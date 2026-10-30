@@ -15,16 +15,37 @@ import (
 
 func main() {
 	installSignalHandler()
-	if len(os.Args) < 2 {
+	args := os.Args[1:]
+	if len(args) == 0 {
 		usage()
 		os.Exit(0)
 	}
-	cmd := os.Args[1]
-	if cmd == "-h" || cmd == "--help" || cmd == "help" {
+	// Вынимаем глобальный --root <path> (можно указывать в любой позиции).
+	var cmd string
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--root" {
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "meow: --root requires a path")
+				os.Exit(1)
+			}
+			rootDir = args[i+1]
+			i++
+			continue
+		}
+		if cmd == "" {
+			cmd = a
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if cmd == "" || cmd == "-h" || cmd == "--help" || cmd == "help" {
 		usage()
 		os.Exit(0)
 	}
-	if err := dispatch(cmd, os.Args[2:]); err != nil {
+	initPaths()
+	if err := dispatch(cmd, rest); err != nil {
 		if errors.Is(err, ErrInterrupted) {
 			fmt.Fprintln(os.Stderr, "interrupted. run 'meow repair' to continue.")
 			os.Exit(130)
@@ -38,13 +59,13 @@ func usage() {
 	fmt.Print(`meow — package manager
 
 	usage:
-	meow <command> [args]
+	meow [--root <path>] <command> [args]
 
 	commands:
 	sync              update repository index
-	install <pkg>     install package (-y to skip prompt)
-	remove <pkg>      remove package (-R to cascade)
-	upgrade           upgrade installed packages
+	install <pkg>     install package (-y skip prompt, -n dry-run)
+	remove <pkg>      remove package (-R cascade, -n dry-run)
+	upgrade           upgrade installed packages (-n dry-run)
 	repair            resume interrupted transaction
 	list              list installed packages
 	search <query>    search repository index
@@ -54,6 +75,8 @@ func usage() {
 	etc-update        merge .meow-new configs
 	clean             clean cache and old logs
 	log [txid]        show transaction log
+
+	--root <path>  install into an alt-root (prepared OS directory) for testing
 	`)
 }
 
@@ -67,14 +90,14 @@ func dispatch(cmd string, args []string) error {
 
 	if readOnly[cmd] {
 		switch cmd {
-			case "list":
-				return cmdList()
-			case "search":
-				return cmdSearch(args)
-			case "info":
-				return cmdInfo(args)
-			case "log":
-				return cmdLog(args)
+		case "list":
+			return cmdList()
+		case "search":
+			return cmdSearch(args)
+		case "info":
+			return cmdInfo(args)
+		case "log":
+			return cmdLog(args)
 		}
 	}
 
@@ -90,35 +113,37 @@ func dispatch(cmd string, args []string) error {
 	}
 
 	switch cmd {
-		case "sync":
-			return cmdSync(cfg)
-		case "install":
-			return cmdInstall(cfg, args)
-		case "remove":
-			return cmdRemove(cfg, args)
-		case "upgrade":
-			return cmdUpgrade(cfg)
-		case "repair":
-			return cmdRepair(cfg)
-		case "enable":
-			return cmdEnable(args)
-		case "disable":
-			return cmdDisable(args)
-		case "etc-update":
-			return cmdEtcUpdate()
-		case "clean":
-			return cmdClean()
+	case "sync":
+		return cmdSync(cfg)
+	case "install":
+		return cmdInstall(cfg, args)
+	case "remove":
+		return cmdRemove(cfg, args)
+	case "upgrade":
+		return cmdUpgrade(cfg, args)
+	case "repair":
+		return cmdRepair(cfg)
+	case "enable":
+		return cmdEnable(args)
+	case "disable":
+		return cmdDisable(args)
+	case "etc-update":
+		return cmdEtcUpdate()
+	case "clean":
+		return cmdClean()
 	}
 	return fmt.Errorf("unknown command: %s", cmd)
 }
 
 func installSignalHandler() {
-	ch := make(chan os.Signal, 1)
+	ch := make(chan os.Signal, 2)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-ch
 		interrupted.Store(true)
-		fmt.Fprintln(os.Stderr, "interrupted. finishing current operation...")
+		fmt.Fprintln(os.Stderr, "interrupted. finishing current operation... (press again to abort now)")
+		<-ch
+		os.Exit(130)
 	}()
 }
 
@@ -192,7 +217,7 @@ func cmdInfo(args []string) error {
 		return fmt.Errorf("package not found: %s", args[0])
 	}
 	fmt.Printf("name: %s\nversion: %s\narch: %s\ndesc: %s\n",
-		   p.Pkgname, p.Version, p.Architecture, p.ShortDesc)
+		p.Pkgname, p.Version, p.Architecture, p.ShortDesc)
 	return nil
 }
 
@@ -224,16 +249,20 @@ func cmdLog(args []string) error {
 
 func cmdInstall(cfg *Config, args []string) error {
 	auto := false
+	dryRun := false
 	var names []string
 	for _, a := range args {
-		if a == "-y" {
+		switch a {
+		case "-y":
 			auto = true
-			continue
+		case "-n", "--dry-run":
+			dryRun = true
+		default:
+			names = append(names, a)
 		}
-		names = append(names, a)
 	}
 	if len(names) == 0 {
-		return fmt.Errorf("usage: meow install [-y] <pkg>...")
+		return fmt.Errorf("usage: meow install [-y] [-n] <pkg>...")
 	}
 
 	rc, err := loadRepoCache()
@@ -269,19 +298,19 @@ func cmdInstall(cfg *Config, args []string) error {
 		}
 		c := CompareVersions(p.Version, v)
 		switch {
-			case c == 0:
-				if requested[p.Pkgname] {
-					if existing, err := readPkg(p.Pkgname); err == nil && existing.Status == "half-configured" {
-						return fmt.Errorf("package %s is half-configured. run 'meow repair' first", p.Pkgname)
-					}
-					return fmt.Errorf("package %s is already installed", p.Pkgname)
+		case c == 0:
+			if requested[p.Pkgname] {
+				if existing, err := readPkg(p.Pkgname); err == nil && existing.Status == "half-configured" {
+					return fmt.Errorf("package %s is half-configured. run 'meow repair' first", p.Pkgname)
 				}
-				continue
-			case c < 0:
-				if requested[p.Pkgname] {
-					return fmt.Errorf("downgrade not supported: %s %s -> %s", p.Pkgname, v, p.Version)
-				}
-				continue
+				return fmt.Errorf("package %s is already installed", p.Pkgname)
+			}
+			continue
+		case c < 0:
+			if requested[p.Pkgname] {
+				return fmt.Errorf("downgrade not supported: %s %s -> %s", p.Pkgname, v, p.Version)
+			}
+			continue
 		}
 		filtered = append(filtered, p)
 	}
@@ -294,6 +323,12 @@ func cmdInstall(cfg *Config, args []string) error {
 	items := make([]string, len(order))
 	for i, p := range order {
 		items[i] = p.Pkgname + "-" + p.Version
+	}
+	if dryRun {
+		for _, it := range items {
+			fmt.Println(it)
+		}
+		return nil
 	}
 	if !confirm("installed", items, auto) {
 		fmt.Println("aborted")
@@ -323,7 +358,7 @@ func cmdInstall(cfg *Config, args []string) error {
 	for i, p := range order {
 		pct := (i * 100) / total
 		fmt.Fprintf(os.Stderr, "[%d/%d %d%%] installing %s-%s\n",
-			    i+1, total, pct, p.Pkgname, p.Version)
+			i+1, total, pct, p.Pkgname, p.Version)
 		isAuto := !requested[p.Pkgname]
 		if err := installOne(cfg, p, queue[i].Update, isAuto, j, i, logf); err != nil {
 			return err
@@ -348,7 +383,13 @@ func mustPkg(name string) (*Pkg, error) {
 	return pkg, nil
 }
 
-func cmdUpgrade(cfg *Config) error {
+func cmdUpgrade(cfg *Config, args []string) error {
+	dryRun := false
+	for _, a := range args {
+		if a == "-n" || a == "--dry-run" {
+			dryRun = true
+		}
+	}
 	rc, err := loadRepoCache()
 	if err != nil {
 		return err
@@ -403,6 +444,12 @@ func cmdUpgrade(cfg *Config) error {
 	for i, p := range order {
 		items[i] = p.Pkgname + "-" + p.Version
 	}
+	if dryRun {
+		for _, it := range items {
+			fmt.Println(it)
+		}
+		return nil
+	}
 	if !confirm("upgraded", items, false) {
 		fmt.Println("aborted")
 		return nil
@@ -426,7 +473,7 @@ func cmdUpgrade(cfg *Config) error {
 	for i, p := range order {
 		pct := (i * 100) / total
 		fmt.Fprintf(os.Stderr, "[%d/%d %d%%] upgrading %s-%s\n",
-			    i+1, total, pct, p.Pkgname, p.Version)
+			i+1, total, pct, p.Pkgname, p.Version)
 		if p.Pkgname == "glibc" {
 			fmt.Fprintln(os.Stderr, "warning: glibc upgrade, reboot recommended")
 		}
@@ -477,64 +524,64 @@ func cmdRepair(cfg *Config) error {
 		}
 
 		switch q.Status {
-			case "done":
+		case "done":
+			continue
+		case "half-configured":
+			p, ok := rc.byName[q.Name]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "cannot resolve %s, keeping journal\n", q.Name)
+				allDone = false
 				continue
-			case "half-configured":
-				p, ok := rc.byName[q.Name]
-				if !ok {
-					fmt.Fprintf(os.Stderr, "cannot resolve %s, keeping journal\n", q.Name)
-					allDone = false
-					continue
-				}
-				archive, err := downloadPackage(cfg, p, logf)
-				if err != nil {
-					return err
-				}
-				if err := runInstallScript(archive, "POST-INSTALL", q.Update, p, logf); err != nil {
-					return err
-				}
-				pkg, err := readPkg(q.Name)
-				if err != nil {
-					return fmt.Errorf("package %s missing from DB after repair: %w", q.Name, err)
-				}
-				pkg.Status = "installed"
-				if err := writePkg(pkg); err != nil {
-					return err
-				}
-				q.Status = "done"
-				if err := j.save(); err != nil {
-					return err
-				}
-			case "in_progress", "failed":
-				// Та же логика: удалить частично разложенные файлы,
-				// вернуть в pending, переустановить с нуля.
-				for _, f := range q.FilesDone {
-					os.Remove(f)
-				}
-				q.FilesDone = nil
-				q.Status = "pending"
-				if err := j.save(); err != nil {
+			}
+			archive, err := downloadPackage(cfg, p, logf)
+			if err != nil {
+				return err
+			}
+			if err := runInstallScript(archive, "POST-INSTALL", q.Update, p, logf); err != nil {
+				return err
+			}
+			pkg, err := readPkg(q.Name)
+			if err != nil {
+				return fmt.Errorf("package %s missing from DB after repair: %w", q.Name, err)
+			}
+			pkg.Status = "installed"
+			if err := writePkg(pkg); err != nil {
+				return err
+			}
+			q.Status = "done"
+			if err := j.save(); err != nil {
+				return err
+			}
+		case "in_progress", "failed":
+			// Та же логика: удалить частично разложенные файлы,
+			// вернуть в pending, переустановить с нуля.
+			for _, f := range q.FilesDone {
+				os.Remove(f)
+			}
+			q.FilesDone = nil
+			q.Status = "pending"
+			if err := j.save(); err != nil {
+				return err
+			}
+			allDone = false
+		case "pending":
+			p, ok := rc.byName[q.Name]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "cannot resolve %s, keeping journal\n", q.Name)
+				allDone = false
+				continue
+			}
+			isAuto := false
+			if existing, err := readPkg(q.Name); err == nil {
+				isAuto = existing.Auto
+			}
+			if err := installOne(cfg, p, q.Update, isAuto, j, i, logf); err != nil {
+				if errors.Is(err, ErrInterrupted) {
 					return err
 				}
 				allDone = false
-			case "pending":
-				p, ok := rc.byName[q.Name]
-				if !ok {
-					fmt.Fprintf(os.Stderr, "cannot resolve %s, keeping journal\n", q.Name)
-					allDone = false
-					continue
-				}
-				isAuto := false
-				if existing, err := readPkg(q.Name); err == nil {
-					isAuto = existing.Auto
-				}
-				if err := installOne(cfg, p, q.Update, isAuto, j, i, logf); err != nil {
-					if errors.Is(err, ErrInterrupted) {
-						return err
-					}
-					allDone = false
-					continue
-				}
+				continue
+			}
 		}
 
 		if q.Status != "done" {
@@ -613,13 +660,13 @@ func cmdEtcUpdate() error {
 		fmt.Printf("%s\n[r]eplace [k]eep [d]elete [q]uit: ", orig)
 		line, _ := in.ReadString('\n')
 		switch strings.TrimSpace(line) {
-			case "r":
-				os.Remove(orig)
-				os.Rename(f, orig)
-			case "k", "d":
-				os.Remove(f)
-			case "q":
-				return nil
+		case "r":
+			os.Remove(orig)
+			os.Rename(f, orig)
+		case "k", "d":
+			os.Remove(f)
+		case "q":
+			return nil
 		}
 	}
 	return nil

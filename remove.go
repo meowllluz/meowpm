@@ -14,27 +14,42 @@ var protectedRoots = map[string]bool{
 	"/proc": true, "/sys": true, "/run": true,
 }
 
+// isProtected учитывает --root: логический путь системной директории защищён
+// и под alt-root.
+func isProtected(dir string) bool {
+	if protectedRoots[dir] {
+		return true
+	}
+	if rootDir != "" {
+		if r, err := filepath.Rel(rootDir, dir); err == nil {
+			return protectedRoots["/"+r]
+		}
+	}
+	return false
+}
+
 func removeOne(pkg *Pkg, logf *os.File) error {
-	svc := filepath.Join("/var/service", pkg.Pkgname)
+	svc := rootJoin(filepath.Join("/var/service", pkg.Pkgname))
 	if _, err := os.Lstat(svc); err == nil {
 		_ = runCmd(logf, "sv", "stop", pkg.Pkgname)
 		_ = os.Remove(svc)
 	}
-	_ = os.RemoveAll(filepath.Join("/etc/sv", pkg.Pkgname))
+	_ = os.RemoveAll(rootJoin(filepath.Join("/etc/sv", pkg.Pkgname)))
 
 	for path, info := range pkg.Files {
+		dst := rootJoin(path)
 		if strings.HasPrefix(path, "/etc/") && info.SHA256 != "" {
-			if cur := sha256File(path); cur != "" && cur != info.SHA256 {
-				_ = os.Rename(path, path+".meow-save")
+			if cur := sha256File(dst); cur != "" && cur != info.SHA256 {
+				_ = os.Rename(dst, dst+".meow-save")
 				continue
 			}
 		}
-		_ = os.Remove(path)
+		_ = os.Remove(dst)
 	}
 	for i := 0; i < 3; i++ {
 		for path := range pkg.Files {
-			dir := filepath.Dir(path)
-			if protectedRoots[dir] {
+			dir := filepath.Dir(rootJoin(path))
+			if isProtected(dir) {
 				continue
 			}
 			_ = os.Remove(dir)
@@ -123,16 +138,20 @@ func cascade(targets []string) ([]string, error) {
 
 func cmdRemove(cfg *Config, args []string) error {
 	cascadeFlag := false
+	dryRun := false
 	var targets []string
 	for _, a := range args {
-		if a == "-R" {
+		switch a {
+		case "-R":
 			cascadeFlag = true
-			continue
+		case "-n", "--dry-run":
+			dryRun = true
+		default:
+			targets = append(targets, a)
 		}
-		targets = append(targets, a)
 	}
 	if len(targets) == 0 {
-		return fmt.Errorf("usage: meow remove [-R] <pkg>...")
+		return fmt.Errorf("usage: meow remove [-R] [-n] <pkg>...")
 	}
 	for _, t := range targets {
 		if cfg.Ignore[t] {
@@ -148,6 +167,12 @@ func cmdRemove(cfg *Config, args []string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if dryRun {
+		for _, t := range targets {
+			fmt.Println(t)
+		}
+		return nil
 	}
 	if !confirm("removed", targets, false) {
 		fmt.Println("aborted")

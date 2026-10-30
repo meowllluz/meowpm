@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"howett.net/plist"
@@ -39,18 +40,28 @@ func parseFilesPlist(data []byte) (map[string]FileInfo, error) {
 		return nil, err
 	}
 	out := map[string]FileInfo{}
-	arr, ok := raw["files"].([]interface{})
-	if !ok {
-		return out, nil
-	}
-	for _, e := range arr {
-		m, ok := e.(map[string]interface{})
+	// files.plist: {"files": [...], "conf_files": [...], "links": [...]}.
+	// Путь в ключе "file" (например "./usr/bin/foo"). Нормализуем к "/usr/bin/foo",
+	// чтобы совпадало с target = "/" + rel в distribute.
+	for _, key := range []string{"files", "conf_files"} {
+		arr, ok := raw[key].([]interface{})
 		if !ok {
 			continue
 		}
-		p := dictStr(m, "path")
-		if p != "" {
-			out[strings.TrimPrefix(p, "./")] = FileInfo{
+		for _, e := range arr {
+			m, ok := e.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			p := dictStr(m, "file")
+			if p == "" {
+				continue
+			}
+			p = strings.TrimPrefix(p, "./")
+			if !strings.HasPrefix(p, "/") {
+				p = "/" + p
+			}
+			out[p] = FileInfo{
 				Mode:   dictStr(m, "mode"),
 				SHA256: dictStr(m, "sha256"),
 			}
@@ -72,7 +83,7 @@ func readFromArchive(archive, name string) ([]byte, error) {
 		lines = lines[:30]
 	}
 	return nil, fmt.Errorf("readFromArchive: %q not found in %s; archive contents:\n%s",
-			       name, archive, strings.Join(lines, "\n"))
+		name, archive, strings.Join(lines, "\n"))
 }
 
 func packageURL(cfg *Config, p *RepoPkg) string {
@@ -86,33 +97,63 @@ func packageURL(cfg *Config, p *RepoPkg) string {
 
 func downloadPackage(cfg *Config, p *RepoPkg, logf *os.File) (string, error) {
 	dest := filepath.Join(cacheDir, p.Pkgname+"-"+p.Version+"."+p.Architecture+".tar.zst")
-	if st, err := os.Stat(dest); err == nil {
-		if st.Size() > 0 {
+	if st, err := os.Stat(dest); err == nil && st.Size() > 0 {
+		if p.FilenameSHA256 == "" || sha256File(dest) == p.FilenameSHA256 {
 			return dest, nil
 		}
-		os.Remove(dest)
+		os.Remove(dest) // sha256 в кеше не совпал — перекачиваем
 	}
 	url := packageURL(cfg, p)
 	if url == "" || !strings.HasPrefix(url, "http") {
 		return "", fmt.Errorf("invalid package URL: %q", url)
 	}
-	if err := runCmd(logf, "curl", "-LSs", "-f",
-		"--connect-timeout", "15", "--max-time", "600",
-		"--retry", "3", "--retry-delay", "2", "--retry-connrefused",
-		"-o", dest, url); err != nil {
+	if err := checkInterrupted(); err != nil {
+		return "", err
+	}
+
+	fmt.Fprintf(os.Stderr, "downloading %s-%s (%s)...\n", p.Pkgname, p.Version, p.Architecture)
+	args := []string{"-L", "-f", "--connect-timeout", "15", "--max-time", "600",
+		"--retry", "3", "--retry-delay", "2", "--retry-connrefused"}
+	tty := isatty(os.Stderr.Fd())
+	if !tty {
+		args = append(args, "-s")
+	}
+	args = append(args, "-o", dest, url)
+
+	cmd := exec.Command("curl", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if tty {
+		cmd.Stderr = os.Stderr // прогресс-бар на терминал
+	} else {
+		cmd.Stdout = logf
+		cmd.Stderr = logf
+	}
+	if err := cmd.Run(); err != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("curl %s: %w", url, err)
+	}
+	if err := checkInterrupted(); err != nil {
+		os.Remove(dest)
+		return "", err
+	}
+
+	st, err := os.Stat(dest)
+	if err != nil {
+		return "", fmt.Errorf("curl reported success but %s missing (url=%s)", dest, url)
+	}
+	if st.Size() == 0 {
+		os.Remove(dest)
+		return "", fmt.Errorf("downloaded zero-byte package: %s", url)
+	}
+	if p.FilenameSHA256 != "" {
+		if got := sha256File(dest); got != p.FilenameSHA256 {
 			os.Remove(dest)
-			return "", fmt.Errorf("curl %s: %w", url, err)
+			return "", fmt.Errorf("sha256 mismatch for %s-%s: got %s, want %s",
+				p.Pkgname, p.Version, got, p.FilenameSHA256)
 		}
-		st, err := os.Stat(dest)
-		if err != nil {
-			return "", fmt.Errorf("curl reported success but %s missing (url=%s)", dest, url)
-		}
-		if st.Size() == 0 {
-			os.Remove(dest)
-			return "", fmt.Errorf("downloaded zero-byte package: %s", url)
-		}
-		fmt.Fprintf(logf, "downloaded %s (%d bytes) from %s\n", dest, st.Size(), url)
-		return dest, nil
+	}
+	fmt.Fprintf(logf, "downloaded %s (%d bytes) from %s\n", dest, st.Size(), url)
+	return dest, nil
 }
 
 func detectStrip(archive string) (int, error) {
@@ -136,10 +177,10 @@ func detectStrip(archive string) (int, error) {
 		}
 	}
 	switch {
-		case withDot > 0 && without > 0:
-			return 0, fmt.Errorf("Malformed archive: mixed path prefixes")
-		case withDot > 0:
-			return 1, nil
+	case withDot > 0 && without > 0:
+		return 0, fmt.Errorf("Malformed archive: mixed path prefixes")
+	case withDot > 0:
+		return 1, nil
 	}
 	return 0, nil
 }
@@ -170,21 +211,21 @@ func place(src, dst string) error {
 		return err
 	}
 	switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(src)
-			if err != nil {
-				return err
-			}
-			os.Remove(dst)
-			return os.Symlink(target, dst)
-		case info.IsDir():
-			if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
-				return err
-			}
-			return os.Chmod(dst, info.Mode().Perm())
-		default:
-			os.Remove(dst)
-			return copyFile(src, dst, info.Mode().Perm())
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		os.Remove(dst)
+		return os.Symlink(target, dst)
+	case info.IsDir():
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(dst, info.Mode().Perm())
+	default:
+		os.Remove(dst)
+		return copyFile(src, dst, info.Mode().Perm())
 	}
 }
 
@@ -201,33 +242,43 @@ func distribute(tmpdir string, files map[string]FileInfo, logf *os.File) (map[st
 		if archiveMeta[rel] {
 			return nil
 		}
-		target := "/" + rel
+		target := "/" + rel     // логический путь (ключ БД / files.plist)
+		dst := rootJoin(target) // физический путь на диске
 		isRegular := info.Mode().IsRegular()
 
+		if isRegular {
+			// Проверяем целостность распакованного файла против sha256 из files.plist.
+			if want := files[target].SHA256; want != "" {
+				if got := sha256File(path); got != want {
+					return fmt.Errorf("sha256 mismatch: %s (got %s, want %s)", target, got, want)
+				}
+			}
+		}
+
 		if isRegular && strings.HasPrefix(target, "/etc/") {
-			if _, err := os.Lstat(target); err == nil {
-				old := sha256File(target)
+			if _, err := os.Lstat(dst); err == nil {
+				old := sha256File(dst)
 				want := files[target].SHA256
 				if want != "" && old != want {
-					nf := target + ".meow-new"
+					nf := dst + ".meow-new"
 					if err := place(path, nf); err != nil {
 						return err
 					}
 					fmt.Fprintf(logf, "warning: %s differs, saved as .meow-new\n", target)
-					out[nf] = FileInfo{
+					out[target+".meow-new"] = FileInfo{
 						Mode:   fmt.Sprintf("%04o", info.Mode().Perm()),
-			     SHA256: sha256File(nf),
+						SHA256: sha256File(nf),
 					}
 					return nil
 				}
 			}
 		}
-		if err := place(path, target); err != nil {
+		if err := place(path, dst); err != nil {
 			return err
 		}
 		fi := FileInfo{Mode: fmt.Sprintf("%04o", info.Mode().Perm())}
 		if isRegular && strings.HasPrefix(target, "/etc/") {
-			fi.SHA256 = sha256File(target)
+			fi.SHA256 = sha256File(dst)
 		}
 		out[target] = fi
 		return nil
@@ -236,6 +287,10 @@ func distribute(tmpdir string, files map[string]FileInfo, logf *os.File) (map[st
 }
 
 func runInstallScript(archive, action string, update bool, p *RepoPkg, logf *os.File) error {
+	if rootDir != "" {
+		fmt.Fprintf(logf, "skipping %s script under --root\n", action)
+		return nil
+	}
 	if err := checkInterrupted(); err != nil {
 		return err
 	}
@@ -257,11 +312,11 @@ func runInstallScript(archive, action string, update bool, p *RepoPkg, logf *os.
 
 	cmd := exec.Command("sh", tmp.Name(), action, "yes")
 	cmd.Env = append(os.Environ(),
-			 "PKG_DESTDIR=/",
-		  "ACTION="+strings.ToLower(strings.TrimSuffix(action, "-INSTALL"))+"install",
-			 "PKGNAME="+p.Pkgname,
-		  "VERSION="+p.Version,
-		  "UPDATE="+boolStr(update),
+		"PKG_DESTDIR=/",
+		"ACTION="+strings.ToLower(strings.TrimSuffix(action, "-INSTALL"))+"install",
+		"PKGNAME="+p.Pkgname,
+		"VERSION="+p.Version,
+		"UPDATE="+boolStr(update),
 	)
 	cmd.Stdout = logf
 	cmd.Stderr = logf
@@ -282,6 +337,10 @@ func boolStr(b bool) string {
 }
 
 func setupAccounts(archive string, logf *os.File) error {
+	if rootDir != "" {
+		fmt.Fprintln(logf, "skipping system accounts/groups under --root")
+		return nil
+	}
 	data, err := readFromArchive(archive, "props.plist")
 	if err != nil || len(data) == 0 {
 		return nil
@@ -309,61 +368,49 @@ func setupAccounts(archive string, logf *os.File) error {
 		}
 	}
 	for _, a := range dictStrs(raw, "system_accounts") {
+		// Формат XBPS: "name" или "name:uid" (одно число = и uid, и gid).
+		// homedir/shell/descr задаются отдельными переменными шаблона и в props.plist
+		// бинарника не попадают — дефолты берёт useradd.
 		parts := strings.Split(a, ":")
-		if len(parts) == 0 || parts[0] == "" {
+		name := parts[0]
+		if name == "" {
 			continue
 		}
-		name := parts[0]
+		uid := ""
+		if len(parts) > 1 {
+			uid = parts[1]
+		}
+		// Группа для аккаунта (primary group = name, gid = uid при наличии).
+		if exec.Command("getent", "group", name).Run() != nil {
+			args := []string{}
+			if uid != "" {
+				args = append(args, "-g", uid)
+			}
+			args = append(args, name)
+			if err := runCmd(logf, "groupadd", args...); err != nil {
+				return err
+			}
+		}
+		// Пользователь.
 		if exec.Command("getent", "passwd", name).Run() == nil {
 			continue
 		}
 		args := []string{"-r"}
-		withUID := false
-		if len(parts) > 1 && parts[1] != "" {
-			args = append(args, "-u", parts[1])
-			withUID = true
-		}
-		if len(parts) > 2 && parts[2] != "" {
-			args = append(args, "-g", parts[2])
-		}
-		if len(parts) > 3 && parts[3] != "" {
-			args = append(args, "-d", parts[3])
-		}
-		if len(parts) > 4 && parts[4] != "" {
-			args = append(args, "-s", parts[4])
-		}
-		if len(parts) > 5 && parts[5] != "" {
-			args = append(args, "-c", parts[5])
+		if uid != "" {
+			args = append(args, "-u", uid, "-g", uid)
+		} else {
+			args = append(args, "-g", name)
 		}
 		args = append(args, name)
-		if err := runCmd(logf, "useradd", args...); err != nil && withUID {
-			if errors.Is(err, ErrInterrupted) {
-				return err
-			}
-			fmt.Fprintln(logf, "useradd failed, retrying without -u")
-			filtered := make([]string, 0, len(args))
-			skip := false
-			for _, x := range args {
-				if skip {
-					skip = false
-					continue
-				}
-				if x == "-u" {
-					skip = true
-					continue
-				}
-				filtered = append(filtered, x)
-			}
-			if err := runCmd(logf, "useradd", filtered...); err != nil {
-				return err
-			}
+		if err := runCmd(logf, "useradd", args...); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func setupRunitPerms(pkgname string) {
-	dir := filepath.Join("/etc/sv", pkgname)
+	dir := rootJoin(filepath.Join("/etc/sv", pkgname))
 	for _, f := range []string{"run", "finish", "check", "log/run"} {
 		p := filepath.Join(dir, f)
 		if _, err := os.Stat(p); err == nil {
@@ -377,14 +424,14 @@ func setupRunitPerms(pkgname string) {
 func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx int, logf *os.File) (rerr error) {
 	defer func() {
 		switch {
-			case rerr == nil:
-				_ = j.setStatus(idx, "done")
-			case errors.Is(rerr, ErrInterrupted):
-				// leave journal as-is
-			case errors.Is(rerr, ErrPostInstall):
-				_ = j.setStatus(idx, "half-configured")
-			default:
-				_ = j.setStatus(idx, "failed")
+		case rerr == nil:
+			_ = j.setStatus(idx, "done")
+		case errors.Is(rerr, ErrInterrupted):
+			// leave journal as-is
+		case errors.Is(rerr, ErrPostInstall):
+			_ = j.setStatus(idx, "half-configured")
+		default:
+			_ = j.setStatus(idx, "failed")
 		}
 	}()
 
@@ -435,72 +482,72 @@ func installOne(cfg *Config, p *RepoPkg, update bool, auto bool, j *Journal, idx
 	defer os.RemoveAll(tmp)
 	if err := runCmd(logf, "tar", "-xf", archive, "-C", tmp,
 		fmt.Sprintf("--strip-components=%d", strip)); err != nil {
-			return err
+		return err
+	}
+	placed, err := distribute(tmp, files, logf)
+	if err != nil {
+		return err
+	}
+	doneList := make([]string, 0, len(placed))
+	var etcFiles []string
+	for path := range placed {
+		doneList = append(doneList, path)
+		if strings.HasPrefix(path, "/etc/") {
+			etcFiles = append(etcFiles, path)
 		}
-		placed, err := distribute(tmp, files, logf)
-		if err != nil {
-			return err
-		}
-		doneList := make([]string, 0, len(placed))
-		var etcFiles []string
-		for path := range placed {
-			doneList = append(doneList, path)
-			if strings.HasPrefix(path, "/etc/") {
-				etcFiles = append(etcFiles, path)
-			}
-		}
-		if err := j.setFilesDone(idx, doneList); err != nil {
-			return err
-		}
-		if err := checkInterrupted(); err != nil {
-			return err
-		}
+	}
+	if err := j.setFilesDone(idx, doneList); err != nil {
+		return err
+	}
+	if err := checkInterrupted(); err != nil {
+		return err
+	}
 
-		setupRunitPerms(p.Pkgname)
+	setupRunitPerms(p.Pkgname)
 
-		pkg := &Pkg{
-			Pkgname:      p.Pkgname,
-			Version:      p.Version,
-			Architecture: p.Architecture,
-			ShortDesc:    p.ShortDesc,
-			RunDepends:   p.RunDepends,
-			Provides:     p.Provides,
-			Conflicts:    p.Conflicts,
-			Files:        placed,
-			EtcFiles:     etcFiles,
-			InstallDate:  time.Now().UTC().Format(time.RFC3339),
-			Status:       "half-configured",
-			Auto:         auto,
+	pkg := &Pkg{
+		Pkgname:      p.Pkgname,
+		Version:      p.Version,
+		Architecture: p.Architecture,
+		ShortDesc:    p.ShortDesc,
+		RunDepends:   p.RunDepends,
+		Provides:     p.Provides,
+		Conflicts:    p.Conflicts,
+		Files:        placed,
+		EtcFiles:     etcFiles,
+		InstallDate:  time.Now().UTC().Format(time.RFC3339),
+		Status:       "half-configured",
+		Auto:         auto,
+	}
+	if update {
+		if old, err := readPkg(p.Pkgname); err == nil {
+			pkg.Auto = old.Auto
+		} else {
+			fmt.Fprintf(logf, "warning: update=true but %s missing from DB, treating as fresh install\n", p.Pkgname)
 		}
-		if update {
-			if old, err := readPkg(p.Pkgname); err == nil {
-				pkg.Auto = old.Auto
-			} else {
-				fmt.Fprintf(logf, "warning: update=true but %s missing from DB, treating as fresh install\n", p.Pkgname)
-			}
-		}
-		if err := writePkg(pkg); err != nil {
-			return err
-		}
-		if err := updateInstalledList(pkg); err != nil {
-			return err
-		}
+	}
+	if err := writePkg(pkg); err != nil {
+		return err
+	}
+	if err := updateInstalledList(pkg); err != nil {
+		return err
+	}
 
-		if err := j.setPhase(idx, "post-install"); err != nil {
+	if err := j.setPhase(idx, "post-install"); err != nil {
+		return err
+	}
+	if err := runInstallScript(archive, "POST-INSTALL", update, p, logf); err != nil {
+		if errors.Is(err, ErrInterrupted) {
 			return err
 		}
-		if err := runInstallScript(archive, "POST-INSTALL", update, p, logf); err != nil {
-			if errors.Is(err, ErrInterrupted) {
-				return err
-			}
-			return fmt.Errorf("%w: %v", ErrPostInstall, err)
-		}
-		if err := checkInterrupted(); err != nil {
-			return err
-		}
+		return fmt.Errorf("%w: %v", ErrPostInstall, err)
+	}
+	if err := checkInterrupted(); err != nil {
+		return err
+	}
 
-		pkg.Status = "installed"
-		return writePkg(pkg)
+	pkg.Status = "installed"
+	return writePkg(pkg)
 }
 
 func updateInstalledList(pkg *Pkg) error {

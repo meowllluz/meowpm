@@ -12,14 +12,15 @@ import (
 )
 
 type RepoPkg struct {
-	Repo         string   `json:"repo"`
-	Pkgname      string   `json:"pkgname"`
-	Version      string   `json:"version"`
-	Architecture string   `json:"architecture"`
-	ShortDesc    string   `json:"short_desc"`
-	RunDepends   []string `json:"run_depends"`
-	Provides     []string `json:"provides"`
-	Conflicts    []string `json:"conflicts"`
+	Repo           string   `json:"repo"`
+	Pkgname        string   `json:"pkgname"`
+	Version        string   `json:"version"`
+	Architecture   string   `json:"architecture"`
+	ShortDesc      string   `json:"short_desc"`
+	RunDepends     []string `json:"run_depends"`
+	Provides       []string `json:"provides"`
+	Conflicts      []string `json:"conflicts"`
+	FilenameSHA256 string   `json:"filename-sha256,omitempty"`
 }
 
 func cmdSync(cfg *Config) error {
@@ -167,14 +168,15 @@ func extractRepoPkg(key string, m map[string]interface{}, repo string) RepoPkg {
 		version = fullVer[len(key)+1:]
 	}
 	return RepoPkg{
-		Repo:         repo,
-		Pkgname:      key,
-		Version:      version,
-		Architecture: dictStr(m, "architecture"),
-		ShortDesc:    dictStr(m, "short_desc"),
-		RunDepends:   dictStrs(m, "run_depends"),
-		Provides:     dictStrs(m, "provides"),
-		Conflicts:    dictStrs(m, "conflicts"),
+		Repo:           repo,
+		Pkgname:        key,
+		Version:        version,
+		Architecture:   dictStr(m, "architecture"),
+		ShortDesc:      dictStr(m, "short_desc"),
+		RunDepends:     dictStrs(m, "run_depends"),
+		Provides:       dictStrs(m, "provides"),
+		Conflicts:      dictStrs(m, "conflicts"),
+		FilenameSHA256: dictStr(m, "filename-sha256"),
 	}
 }
 
