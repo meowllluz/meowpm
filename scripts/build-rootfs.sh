@@ -33,6 +33,7 @@ echo "== 2/7 mount + bootstrap пакетов =="
 mount --bind /dev "$ROOT/dev" || true
 mount --bind /proc "$ROOT/proc" || true
 mount --bind /sys "$ROOT/sys" || true
+trap 'umount "$ROOT/dev" 2>/dev/null; umount "$ROOT/proc" 2>/dev/null; umount "$ROOT/sys" 2>/dev/null' EXIT
 chroot "$ROOT" xbps-install -Syu xbps || true
 chroot "$ROOT" xbps-install -Sy curl tar zstd shadow runit
 chroot "$ROOT" xbps-install -Sy seatd iwd dbus wpa_supplicant

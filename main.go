@@ -64,7 +64,7 @@ func usage() {
 	commands:
 	sync              update repository index
 	install <pkg>     install package (-y skip prompt, -n dry-run)
-	remove <pkg>      remove package (-R cascade, -n dry-run)
+	remove <pkg>      remove package (-R cascade, -n dry-run, -y skip prompt)
 	upgrade           upgrade installed packages (-n dry-run)
 	repair            resume interrupted transaction
 	list              list installed packages

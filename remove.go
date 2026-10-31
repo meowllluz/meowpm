@@ -145,6 +145,7 @@ func cascade(targets []string) ([]string, error) {
 func cmdRemove(cfg *Config, args []string) error {
 	cascadeFlag := false
 	dryRun := false
+	auto := false
 	var targets []string
 	for _, a := range args {
 		switch a {
@@ -152,12 +153,14 @@ func cmdRemove(cfg *Config, args []string) error {
 			cascadeFlag = true
 		case "-n", "--dry-run":
 			dryRun = true
+		case "-y":
+			auto = true
 		default:
 			targets = append(targets, a)
 		}
 	}
 	if len(targets) == 0 {
-		return fmt.Errorf("usage: meow remove [-R] [-n] <pkg>...")
+		return fmt.Errorf("usage: meow remove [-R] [-n] [-y] <pkg>...")
 	}
 	for _, t := range targets {
 		if cfg.Ignore[t] {
@@ -180,7 +183,7 @@ func cmdRemove(cfg *Config, args []string) error {
 		}
 		return nil
 	}
-	if !confirm("removed", targets, false) {
+	if !confirm("removed", targets, auto) {
 		fmt.Println("aborted")
 		return nil
 	}
