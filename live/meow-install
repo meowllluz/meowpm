@@ -1,0 +1,120 @@
+#!/bin/sh
+# meow-install — инсталлятор Meow Linux (CLI).
+# Разметка вручную (cfdisk) -> LUKS (опц.) -> mkfs -> распаковка rootfs.tar.zst
+# -> chroot-настройка (ядро+dracut+systemd-boot, hostname, пароли, doas/sudo).
+set -eu
+
+ROOTFS="${MEOW_ROOTFS:-/rootfs.tar.zst}"
+MNT="/mnt"
+
+die() { echo "meow-install: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "run as root"
+command -v zstd >/dev/null || die "нет zstd"
+command -v cryptsetup >/dev/null || die "нет cryptsetup"
+[ -f "$ROOTFS" ] || die "$ROOTFS не найден"
+
+# --- 1. диск и ручная разметка ---
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+printf "Диск (напр. /dev/sda): "; read -r DISK
+[ -b "$DISK" ] || die "$DISK не блочное устройство"
+cfdisk "$DISK"
+
+# --- 2. LUKS (опционально) ---
+printf "LUKS-шифрование root? [y/N]: "; read -r LUKS
+printf "Раздел root (напр. ${DISK}2): "; read -r ROOTPART
+[ -b "$ROOTPART" ] || die "$ROOTPART нет"
+case "$LUKS" in
+  y|Y|yes)
+    cryptsetup luksFormat "$ROOTPART"
+    cryptsetup open "$ROOTPART" cryptroot
+    ROOTDEV="/dev/mapper/cryptroot"
+    LUKS_UUID="$(cryptsetup luksUUID "$ROOTPART")"
+    ;;
+  *) ROOTDEV="$ROOTPART" ;;
+esac
+
+# --- 3. ФС ---
+printf "ФС [ext4/btrfs] (ext4): "; read -r FS; FS="${FS:-ext4}"
+case "$FS" in
+  ext4) mkfs.ext4 -q "$ROOTDEV" ;;
+  btrfs) mkfs.btrfs -q "$ROOTDEV" ;;
+  *) die "неизвестная ФС" ;;
+esac
+
+# --- 4. mount root + EFI ---
+mkdir -p "$MNT"
+mount "$ROOTDEV" "$MNT"
+printf "EFI-раздел (напр. ${DISK}1): "; read -r EFIPART
+[ -b "$EFIPART" ] || die "$EFIPART нет"
+mkdir -p "$MNT/boot"
+mount "$EFIPART" "$MNT/boot"
+
+# --- 5. распаковка rootfs ---
+echo "распаковка rootfs..."
+zstd -dc "$ROOTFS" | tar -x -C "$MNT"
+
+# --- 6. виртуальные ФС ---
+mount --bind /dev "$MNT/dev"
+mount --bind /proc "$MNT/proc"
+mount --bind /sys "$MNT/sys"
+cp /etc/resolv.conf "$MNT/etc/resolv.conf"
+
+# UUID для fstab/cmdline
+ROOT_UUID="$(blkid -s UUID -o value "$ROOTDEV")"
+
+# --- 7. chroot-настройка ---
+chroot "$MNT" /bin/sh -eu - "$ROOT_UUID" "$LUKS_UUID" "$ROOTDEV" <<'EOF'
+ROOT_UUID="$1"; LUKS_UUID="$2"; ROOTDEV="$3"
+
+meow sync
+meow install -y linux dracut systemd-boot
+
+# hostname
+printf "Hostname: "; read -r HN; echo "$HN" > /etc/hostname
+
+# root
+passwd root
+
+# пользователь в wheel
+printf "Пользователь: "; read -r USER
+useradd -m -G wheel "$USER"
+passwd "$USER"
+
+# doas или sudo
+printf "escalation [doas/sudo] (doas): "; read -r ESC; ESC="${ESC:-doas}"
+if [ "$ESC" = "sudo" ]; then
+    meow install -y sudo
+    echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
+else
+    echo 'permit persist :wheel' > /etc/doas.conf
+    chmod 600 /etc/doas.conf
+    ln -sf /usr/bin/doas /usr/bin/sudo
+fi
+
+# fstab
+{
+  echo "UUID=$ROOT_UUID / $( [ -n "$LUKS_UUID" ] && echo ext4 || echo auto ) defaults 0 1"
+} > /etc/fstab
+
+# initramfs (crypt hook если LUKS)
+if [ -n "$LUKS_UUID" ]; then
+    dracut --force --add crypt
+else
+    dracut --force
+fi
+
+# systemd-boot
+bootctl install
+mkdir -p /boot/loader/entries
+printf 'default meow\ntimeout 3\n' > /boot/loader/loader.conf
+if [ -n "$LUKS_UUID" ]; then
+  OPTIONS="rd.luks.name=$LUKS_UUID=cryptroot root=/dev/mapper/cryptroot rw"
+else
+  OPTIONS="root=UUID=$ROOT_UUID rw"
+fi
+printf 'title Meow Linux\nlinux /vmlinuz\ninitrd /initramfs.img\noptions %s\n' "$OPTIONS" \
+  > /boot/loader/entries/meow.conf
+EOF
+
+umount -R "$MNT" 2>/dev/null || true
+echo "Готово. Перезагрузись и вынь носитель."

@@ -1,0 +1,31 @@
+#!/bin/busybox sh
+# Meow Linux live init (busybox). squashfs (lower) + tmpfs overlay -> switch_root.
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+mkdir -p /run/iso /run/lower /run/upper /run/work /run/root
+
+# найти носитель: по label MEOW_LIVE
+found=0
+for dev in /dev/sr0 /dev/sd* /dev/vd* /dev/nvme*; do
+    [ -b "$dev" ] || continue
+    if mount -o ro "$dev" /run/iso 2>/dev/null && [ -f /run/iso/root.squashfs ]; then
+        found=1; break
+    fi
+    umount /run/iso 2>/dev/null
+done
+[ "$found" = 1 ] || exec /bin/sh  # fallback shell
+
+mount -t squashfs -o loop,ro /run/iso/root.squashfs /run/lower
+mount -t tmpfs -o mode=0755 tmpfs /run/work
+mkdir -p /run/work/upper /run/work/work
+mount -t overlay overlay \
+    -o lowerdir=/run/lower,upperdir=/run/work/upper,workdir=/run/work/work /run/root
+
+mount --move /proc /run/root/proc
+mount --move /sys  /run/root/sys
+mount --move /dev  /run/root/dev
+
+exec switch_root /run/root /sbin/init

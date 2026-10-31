@@ -8,3 +8,9 @@
 /vendor/
 .test-rootfs/
 .build-rootfs/
+/rootfs.tar.zst
+.live-rootfs/
+/meow-live.iso
+live/root.squashfs
+live/initramfs.img
+live/efiboot.img
