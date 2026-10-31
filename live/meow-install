@@ -53,6 +53,9 @@ mount "$EFIPART" "$MNT/boot"
 echo "распаковка rootfs..."
 zstd -dc "$ROOTFS" | tar -x -C "$MNT"
 
+# rootfs.tar.zst без виртуальных точек — создаём их
+mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run" "$MNT/tmp" "$MNT/var/tmp"
+
 # --- 6. виртуальные ФС ---
 mount --bind /dev "$MNT/dev"
 mount --bind /proc "$MNT/proc"
