@@ -16,6 +16,9 @@ echo "== 1/5 live rootfs =="
 rm -rf "$WORK"; mkdir -p "$WORK"
 zstd -dc "$ROOTFS_TAR" | tar -x -C "$WORK"
 
+# rootfs.tar.zst запакован БЕЗ dev/proc/sys/run — создаём точки монтирования заново
+mkdir -p "$WORK/dev" "$WORK/proc" "$WORK/sys" "$WORK/run"
+
 mount --bind /dev "$WORK/dev"; mount --bind /proc "$WORK/proc"; mount --bind /sys "$WORK/sys"
 cp /etc/resolv.conf "$WORK/etc/resolv.conf"
 
