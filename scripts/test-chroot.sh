@@ -1,52 +1,46 @@
 #!/bin/sh
-# meowpm — интеграционный тест в chroot на свежем Void rootfs.
+# meowpm — подготовка Void rootfs к ручному тесту переноса xbps -> meow.
 #
-# Что делает:
-#   1. Скачивает последний Void rootfs (glibc, x86_64) и распаковывает в каталог.
-#   2. Через нативный xbps (он есть в rootfs) доустанавливает зависимости meow:
-#      curl, tar, shadow, runit.
-#   3. Монтирует /dev /proc /sys (иначе нет /dev/null — Go подключает его при
-#      cmd.Stdin == nil), копирует собранный meow внутрь, пишет /etc/meow/pm.conf.
-#   4. Прогоняет сценарий: sync -> install (с зависимостями) -> list/info/search
-#      -> remove.
+#   1. Удаляет старую rootfs (без переиспользования).
+#   2. Скачивает свежий Void rootfs (glibc, x86_64) и распаковывает.
+#   3. Через нативный xbps ставит зависимости meow (curl tar zstd shadow runit)
+#      плюс тестовые пакеты tree и htop (их потом и переносим в meow).
+#   4. Собирает meow и xbps2meow, копирует в /usr/bin, пишет /etc/meow/pm.conf.
+#   5. Монтирует /dev /proc /sys (остаются смонтированными для ручного chroot).
+#   6. Печатает команды для ручного теста.
 #
-# Требует root (chroot). Запуск:  sudo ./scripts/test-chroot.sh
-# Каталог alt-root можно переопределить:  ROOT=/tmp/void ./scripts/test-chroot.sh
-# При повторном запуске готовый rootfs переиспользуется (пропускается скачивание).
+# Требует root. Запуск:  sudo ./scripts/test-chroot.sh
+# Alt-root:  ROOT=/tmp/void sudo ./scripts/test-chroot.sh
+# Путь к xbps2meow:  X2M_DIR=/path sudo ./scripts/test-chroot.sh
 set -eu
 
 MEOW_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+X2M_DIR="${X2M_DIR:-/home/llluz/xbps2meow}"
 ROOT="${ROOT:-$MEOW_DIR/.test-rootfs}"
 REPO="https://repo-default.voidlinux.org/current"
 LIVE="https://repo-default.voidlinux.org/live/current"
 
-if [ -x "$ROOT/usr/bin/xbps" ]; then
-    echo ">> rootfs уже готов в $ROOT (пропускаю скачивание/bootstrap)"
-else
-    echo "== 1/5 поиск последнего rootfs =="
-    ROOTFS_URL="$(curl -fsSL "$LIVE/" | grep -oE 'void-x86_64-ROOTFS-[0-9]+\.tar\.xz' | sort -V | tail -1)"
-    ROOTFS_URL="$LIVE/$ROOTFS_URL"
-    echo "    $ROOTFS_URL"
+echo "== 1/6 удаление старой rootfs ($ROOT) =="
+rm -rf "$ROOT"
+mkdir -p "$ROOT"
 
-    echo "== 2/5 распаковка в $ROOT =="
-    rm -rf "$ROOT"
-    mkdir -p "$ROOT"
-    curl -fsSL "$ROOTFS_URL" | tar -xJ -C "$ROOT"
+echo "== 2/6 скачивание и распаковка =="
+ROOTFS_URL="$(curl -fsSL "$LIVE/" | grep -oE 'void-x86_64-ROOTFS-[0-9]+\.tar\.xz' | sort -V | tail -1)"
+ROOTFS_URL="$LIVE/$ROOTFS_URL"
+echo "    $ROOTFS_URL"
+curl -fsSL "$ROOTFS_URL" | tar -xJ -C "$ROOT"
 
-    cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
+cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
 
-    echo "== 3/5 bootstrap зависимостей meow через xbps =="
-    chroot "$ROOT" xbps-install -Syu xbps || true
-    chroot "$ROOT" xbps-install -Sy curl tar shadow runit zstd
-fi
+echo "== 3/6 bootstrap зависимостей + тестовые пакеты через xbps =="
+chroot "$ROOT" xbps-install -Syu xbps || true
+chroot "$ROOT" xbps-install -Sy curl tar zstd shadow runit
+chroot "$ROOT" xbps-install -Sy tree htop
 
-echo "== 4/5 mount /dev /proc /sys + сборка meow =="
-mount --bind /dev "$ROOT/dev" || true
-mount --bind /proc "$ROOT/proc" || true
-mount --bind /sys "$ROOT/sys" || true
-trap 'umount "$ROOT/dev" 2>/dev/null; umount "$ROOT/proc" 2>/dev/null; umount "$ROOT/sys" 2>/dev/null' EXIT
-
+echo "== 4/6 сборка meow и xbps2meow =="
 (cd "$MEOW_DIR" && go build -o "$ROOT/usr/bin/meow" .)
+(cd "$X2M_DIR" && go build -o "$ROOT/usr/bin/xbps2meow" .)
+
 mkdir -p "$ROOT/etc/meow"
 cat > "$ROOT/etc/meow/pm.conf" <<EOF
 REPO_MAIN=$REPO
@@ -54,15 +48,39 @@ ARCH=x86_64
 ESCALATOR=doas
 EOF
 
-echo "== 5/5 сценарий =="
-chroot "$ROOT" /usr/bin/meow sync
-chroot "$ROOT" /usr/bin/meow install -y tree
-chroot "$ROOT" /usr/bin/meow list
-chroot "$ROOT" /usr/bin/meow info tree
-chroot "$ROOT" /usr/bin/meow search tree
-chroot "$ROOT" /usr/bin/meow remove -y tree
-# пакет с зависимостями — проверяет resolveOrder, sha256, extract, INSTALL-хуки:
-chroot "$ROOT" /usr/bin/meow install -y htop
-chroot "$ROOT" /usr/bin/meow remove -y htop
+echo "== 5/6 mount /dev /proc /sys =="
+mount --bind /dev "$ROOT/dev" || true
+mount --bind /proc "$ROOT/proc" || true
+mount --bind /sys "$ROOT/sys" || true
 
-echo "== OK =="
+cat <<EOF
+
+== 6/6 готово ==
+Среда подготовлена. Войди в chroot:
+
+    sudo chroot $ROOT /bin/sh
+
+Внутри — команды теста переноса (по порядку):
+
+    # 1. перенос xbps-БД в meow
+    xbps2meow
+
+    # 2. meow должен видеть ВСЕ пакеты (не только tree/htop)
+    meow list
+
+    # 3. dry-run удаления: НЕ должен тянуть glibc за собой
+    meow remove -n tree
+
+    # 4. реальное удаление tree (без -R, чтобы не каскадить)
+    meow remove -y tree
+
+    # 5. установить что-то через meow поверх перенесённой БД
+    meow install -y tree
+
+    # 6. снова список
+    meow list
+
+Когда закончишь — exit из chroot и отмонтируй:
+
+    sudo umount $ROOT/dev $ROOT/proc $ROOT/sys
+EOF
