@@ -27,7 +27,7 @@ cp "$ROOTFS_TAR" "$WORK/rootfs.tar.zst"
 
 chroot "$WORK" /bin/sh -eu <<'EOF'
 meow sync
-meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup busybox-static
+meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup busybox-static systemd-boot
 EOF
 umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
