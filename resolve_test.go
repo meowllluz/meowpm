@@ -114,3 +114,24 @@ func TestCheckConflicts(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestResolveAll(t *testing.T) {
+	rc := &RepoCache{
+		byName: map[string]*RepoPkg{
+			"foo": {Pkgname: "foo", Version: "1.0"},
+		},
+		byProvide: map[string][]*RepoPkg{
+			"awk": {
+				{Pkgname: "gawk", Version: "1.0", Provides: []string{"awk-0"}},
+				{Pkgname: "mawk", Version: "1.0", Provides: []string{"awk-0"}},
+			},
+		},
+	}
+	if got := rc.resolveAll("foo"); len(got) != 1 || got[0] != "foo" {
+		t.Errorf("resolveAll(foo)=%v want [foo]", got)
+	}
+	got := rc.resolveAll("awk>=0")
+	if len(got) != 2 {
+		t.Fatalf("resolveAll(awk>=0)=%v want 2 providers", got)
+	}
+}

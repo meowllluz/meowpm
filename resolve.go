@@ -138,6 +138,26 @@ func (rc *RepoCache) resolveReal(req string) (string, error) {
 	return p.Pkgname, nil
 }
 
+// resolveAll возвращает ВСЕ пакеты, удовлетворяющие зависимости (по имени или
+// через provides). Для cascade: если провайдеров несколько — учитываем всех,
+// чтобы не удалить ни одного из них как сироту.
+func (rc *RepoCache) resolveAll(req string) []string {
+	n, _ := parseDep(req)
+	if p, ok := rc.byName[n]; ok {
+		return []string{p.Pkgname}
+	}
+	var out []string
+	for _, p := range rc.byProvide[n] {
+		for _, pr := range p.Provides {
+			if satisfiesDep(pr, req) {
+				out = append(out, p.Pkgname)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // checkConflicts возвращает ошибку, если устанавливаемый пакет конфликтует
 // с уже установленным (по имени пакета).
 func checkConflicts(order []*RepoPkg, inst map[string]string) error {

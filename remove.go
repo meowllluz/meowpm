@@ -97,11 +97,9 @@ func cascade(targets []string) ([]string, error) {
 			continue
 		}
 		for _, d := range p.RunDepends {
-			real, err := rc.resolveReal(d)
-			if err != nil {
-				return nil, fmt.Errorf("cannot resolve dependency %q of %s: %w", d, e.Name, err)
+			for _, real := range rc.resolveAll(d) {
+				deps[e.Name] = append(deps[e.Name], real)
 			}
-			deps[e.Name] = append(deps[e.Name], real)
 		}
 	}
 	removed := map[string]bool{}
