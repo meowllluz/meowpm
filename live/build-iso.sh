@@ -33,6 +33,7 @@ umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
 # --- 2. squashfs ---
 echo "== 2/5 squashfs =="
+rm -f "$LIVE_DIR/root.squashfs"
 mksquashfs "$WORK" "$LIVE_DIR/root.squashfs" -comp zstd -noappend
 
 # --- 3. initramfs (busybox static + init) ---
@@ -44,7 +45,7 @@ IR="/tmp/meow-initramfs"; rm -rf "$IR"; mkdir -p "$IR/bin" "$IR/sbin" "$IR/proc"
 cp "$BB" "$IR/bin/busybox"
 cp "$LIVE_DIR/init" "$IR/init"; chmod +x "$IR/init"
 for a in switch_root mount umount mkdir; do ln -sf /bin/busybox "$IR/bin/$a"; done
-(cd "$IR" && find . | cpio -o -H newc 2>/dev/null | zstd -o "$LIVE_DIR/initramfs.img")
+(cd "$IR" && find . | cpio -o -H newc 2>/dev/null | zstd -f -o "$LIVE_DIR/initramfs.img")
 rm -rf "$IR"
 
 # --- 4. ядро + systemd-boot ---
