@@ -57,26 +57,28 @@ SDBOOT="$(find "$WORK" -name 'systemd-bootx64.efi' 2>/dev/null | head -1)"
 
 # --- 5. ISO (UEFI) ---
 echo "== 5/5 ISO =="
-ISO="$LIVE_DIR/.iso"; rm -rf "$ISO"; mkdir -p "$ISO/EFI/BOOT" "$ISO/loader/entries"
-cp "$SDBOOT" "$ISO/EFI/BOOT/BOOTX64.EFI"
-cp "$KERNEL" "$ISO/vmlinuz"
-cp "$LIVE_DIR/initramfs.img" "$ISO/initramfs.img"
-cp "$LIVE_DIR/root.squashfs" "$ISO/root.squashfs"
-printf 'default meow\ntimeout 3\n' > "$ISO/loader/loader.conf"
-printf 'title Meow Linux (live)\nlinux /vmlinuz\ninitrd /initramfs.img\noptions rw\n' > "$ISO/loader/entries/meow.conf"
+ISO="$LIVE_DIR/.iso"; rm -rf "$ISO"; mkdir -p "$ISO"
 
+# loader-конфиги (временные файлы для mcopy)
+LCONF="$LIVE_DIR/.loader.conf"; ECONF="$LIVE_DIR/.meow.conf"
+printf 'default meow\ntimeout 3\n' > "$LCONF"
+printf 'title Meow Linux (live)\nlinux /vmlinuz\ninitrd /initramfs.img\noptions rw\n' > "$ECONF"
+
+# efiboot.img (ESP): только bootloader + ядро + initramfs (НЕ squashfs)
 EFI="$LIVE_DIR/efiboot.img"; rm -f "$EFI"
 dd if=/dev/zero of="$EFI" bs=1M count=64 status=none
 mkfs.vfat -n MEOW_EFI "$EFI" >/dev/null
 mmd -i "$EFI" ::EFI ::EFI/BOOT ::loader ::loader/entries
-mcopy -i "$EFI" "$ISO/EFI/BOOT/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
-mcopy -i "$EFI" "$ISO/vmlinuz" ::vmlinuz
-mcopy -i "$EFI" "$ISO/initramfs.img" ::initramfs.img
-mcopy -i "$EFI" "$ISO/root.squashfs" ::root.squashfs
-mcopy -i "$EFI" "$ISO/loader/loader.conf" ::loader/loader.conf
-mcopy -i "$EFI" "$ISO/loader/entries/meow.conf" ::loader/entries/meow.conf
+mcopy -i "$EFI" "$SDBOOT" ::EFI/BOOT/BOOTX64.EFI
+mcopy -i "$EFI" "$KERNEL" ::vmlinuz
+mcopy -i "$EFI" "$LIVE_DIR/initramfs.img" ::initramfs.img
+mcopy -i "$EFI" "$LCONF" ::loader/loader.conf
+mcopy -i "$EFI" "$ECONF" ::loader/entries/meow.conf
 
-xorriso -as mkisofs -iso-level 3 -o "$ISO_OUT" -e efiboot.img -no-emul-boot "$EFI" "$ISO" >/dev/null 2>&1 \
-  || xorriso -as mkisofs -iso-level 3 -o "$ISO_OUT" -e efiboot.img -no-emul-boot -append_partition 2 . "$EFI" "$ISO"
+# root.squashfs кладём на ISO (ISO9660); live-init найдёт его через /dev/sr0
+cp "$LIVE_DIR/root.squashfs" "$ISO/root.squashfs"
+
+xorriso -as mkisofs -iso-level 3 -o "$ISO_OUT" -e efiboot.img -no-emul-boot "$EFI" "$ISO"
+rm -f "$LCONF" "$ECONF"
 
 echo "ISO готов: $ISO_OUT"
