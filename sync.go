@@ -21,6 +21,7 @@ type RepoPkg struct {
 	Provides       []string `json:"provides"`
 	Conflicts      []string `json:"conflicts"`
 	FilenameSHA256 string   `json:"filename-sha256,omitempty"`
+	FilenameSize   int64    `json:"filename-size,omitempty"`
 }
 
 func cmdSync(cfg *Config) error {
@@ -177,6 +178,7 @@ func extractRepoPkg(key string, m map[string]interface{}, repo string) RepoPkg {
 		Provides:       dictStrs(m, "provides"),
 		Conflicts:      dictStrs(m, "conflicts"),
 		FilenameSHA256: dictStr(m, "filename-sha256"),
+		FilenameSize:   dictInt(m, "filename-size"),
 	}
 }
 
@@ -185,6 +187,22 @@ func dictStr(m map[string]interface{}, k string) string {
 		return v
 	}
 	return ""
+}
+
+// dictInt читает целочисленное поле plist (howett.net/plist декодирует
+// <integer> как int64; иногда uint64/float64).
+func dictInt(m map[string]interface{}, k string) int64 {
+	switch v := m[k].(type) {
+	case int64:
+		return v
+	case uint64:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	}
+	return 0
 }
 
 func dictStrs(m map[string]interface{}, k string) []string {

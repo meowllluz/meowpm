@@ -108,27 +108,38 @@ func downloadPackage(cfg *Config, p *RepoPkg, logf *os.File) (string, error) {
 		return "", err
 	}
 
-	fmt.Fprintf(os.Stderr, "downloading %s-%s (%s)...\n", p.Pkgname, p.Version, p.Architecture)
-	args := []string{"-L", "-f", "--connect-timeout", "15", "--max-time", "600",
-		"--retry", "3", "--retry-delay", "2", "--retry-connrefused"}
-	tty := isatty(os.Stderr.Fd())
-	if !tty {
-		args = append(args, "-s")
-	}
-	args = append(args, "-o", dest, url)
-
+	// -s подавляет собственный прогресс curl — рисуем свой.
+	args := []string{"-L", "-f", "-s",
+		"--connect-timeout", "15", "--max-time", "600",
+		"--retry", "3", "--retry-delay", "2", "--retry-connrefused",
+		"-o", dest, url}
 	cmd := exec.Command("curl", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if tty {
-		cmd.Stderr = os.Stderr // прогресс-бар на терминал
+	cmd.Stdout = logf
+	cmd.Stderr = logf
+
+	if !isatty(os.Stderr.Fd()) {
+		fmt.Fprintf(logf, "downloading %s-%s (%s)...\n", p.Pkgname, p.Version, p.Architecture)
+		if err := cmd.Run(); err != nil {
+			os.Remove(dest)
+			return "", fmt.Errorf("curl %s: %w", url, err)
+		}
 	} else {
-		cmd.Stdout = logf
-		cmd.Stderr = logf
+		if err := cmd.Start(); err != nil {
+			os.Remove(dest)
+			return "", fmt.Errorf("curl %s: %w", url, err)
+		}
+		done := make(chan struct{})
+		go progressLoop(dest, p.Pkgname, p.Version, p.FilenameSize, done)
+		err := cmd.Wait()
+		close(done)
+		fmt.Fprintln(os.Stderr) // завершить строку прогресса
+		if err != nil {
+			os.Remove(dest)
+			return "", fmt.Errorf("curl %s: %w", url, err)
+		}
 	}
-	if err := cmd.Run(); err != nil {
-		os.Remove(dest)
-		return "", fmt.Errorf("curl %s: %w", url, err)
-	}
+
 	if err := checkInterrupted(); err != nil {
 		os.Remove(dest)
 		return "", err
@@ -151,6 +162,59 @@ func downloadPackage(cfg *Config, p *RepoPkg, logf *os.File) (string, error) {
 	}
 	fmt.Fprintf(logf, "downloaded %s (%d bytes) from %s\n", dest, st.Size(), url)
 	return dest, nil
+}
+
+// progressLoop рисует прогресс загрузки в stderr:
+// "installing name-ver [pct%, cur / total, speed]".
+func progressLoop(dest, name, version string, total int64, done <-chan struct{}) {
+	prev := int64(0)
+	prevT := time.Now()
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+			st, err := os.Stat(dest)
+			if err != nil {
+				continue
+			}
+			cur := st.Size()
+			dt := time.Since(prevT).Seconds()
+			var speed float64
+			if dt > 0 {
+				speed = float64(cur-prev) / dt
+			}
+			if total > 0 {
+				pct := int(float64(cur) / float64(total) * 100)
+				if pct > 100 {
+					pct = 100
+				}
+				fmt.Fprintf(os.Stderr, "\rinstalling %s-%s [%d%%, %s / %s, %s/s]    ",
+					name, version, pct, humanSize(float64(cur)), humanSize(float64(total)), humanSize(speed))
+			} else {
+				fmt.Fprintf(os.Stderr, "\rinstalling %s-%s [%s, %s/s]    ",
+					name, version, humanSize(float64(cur)), humanSize(speed))
+			}
+			prev = cur
+			prevT = time.Now()
+		}
+	}
+}
+
+// humanSize форматирует байты в человеко-читаемый вид (1024-основа).
+func humanSize(n float64) string {
+	units := []string{"B", "KiB", "MiB", "GiB"}
+	u := 0
+	for n >= 1024 && u < len(units)-1 {
+		n /= 1024
+		u++
+	}
+	if u == 0 {
+		return fmt.Sprintf("%.0f%s", n, units[u])
+	}
+	return fmt.Sprintf("%.1f%s", n, units[u])
 }
 
 func detectStrip(archive string) (int, error) {

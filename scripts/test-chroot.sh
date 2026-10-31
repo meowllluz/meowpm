@@ -37,7 +37,7 @@ else
 
     echo "== 3/5 bootstrap зависимостей meow через xbps =="
     chroot "$ROOT" xbps-install -Syu xbps || true
-    chroot "$ROOT" xbps-install -Sy curl tar shadow runit
+    chroot "$ROOT" xbps-install -Sy curl tar shadow runit zstd
 fi
 
 echo "== 4/5 mount /dev /proc /sys + сборка meow =="
