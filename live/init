@@ -1,22 +1,32 @@
 #!/bin/sh
-# Meow Linux live init (busybox). squashfs (lower) + tmpfs overlay -> switch_root.
+# Meow Linux live init (busybox sh). squashfs (lower) + tmpfs overlay -> switch_root.
+# /proc /sys /dev уже смонтированы бинарным C init, но дублируем на случай.
 
 mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
 
-mkdir -p /run/iso /run/lower /run/upper /run/work /run/root
+mkdir -p /run/iso /run/lower /run/work /run/root
 
-# найти носитель: по label MEOW_LIVE
+# найти носитель с root.squashfs (iso9660 или vfat)
 found=0
-for dev in /dev/sr0 /dev/sd* /dev/vd* /dev/nvme*; do
+for dev in /dev/sr0 /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk*; do
     [ -b "$dev" ] || continue
-    if mount -o ro "$dev" /run/iso 2>/dev/null && [ -f /run/iso/root.squashfs ]; then
-        found=1; break
+    if mount -o ro -t iso9660 "$dev" /run/iso 2>/dev/null \
+       || mount -o ro -t vfat "$dev" /run/iso 2>/dev/null; then
+        if [ -f /run/iso/root.squashfs ]; then
+            found=1; break
+        fi
+        umount /run/iso 2>/dev/null
     fi
-    umount /run/iso 2>/dev/null
 done
-[ "$found" = 1 ] || exec /bin/sh  # fallback shell
+
+if [ "$found" != 1 ]; then
+    echo "!! root.squashfs не найден"
+    echo "блочные устройства:"; ls -l /dev/sd* /dev/sr* /dev/vd* /dev/nvme* /dev/mmcblk* 2>/dev/null
+    echo "mount:"; mount
+    exec /bin/sh
+fi
 
 mount -t squashfs -o loop,ro /run/iso/root.squashfs /run/lower
 mount -t tmpfs -o mode=0755 tmpfs /run/work
@@ -24,6 +34,7 @@ mkdir -p /run/work/upper /run/work/work
 mount -t overlay overlay \
     -o lowerdir=/run/lower,upperdir=/run/work/upper,workdir=/run/work/work /run/root
 
+mkdir -p /run/root/proc /run/root/sys /run/root/dev
 mount --move /proc /run/root/proc
 mount --move /sys  /run/root/sys
 mount --move /dev  /run/root/dev
