@@ -1,4 +1,4 @@
-#!/bin/busybox sh
+#!/bin/sh
 # Meow Linux live init (busybox). squashfs (lower) + tmpfs overlay -> switch_root.
 
 mount -t proc proc /proc 2>/dev/null
