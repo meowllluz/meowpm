@@ -28,6 +28,7 @@ cp "$ROOTFS_TAR" "$WORK/rootfs.tar.zst"
 chroot "$WORK" /bin/sh -eu <<'EOF'
 meow sync
 meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup busybox-static systemd-boot
+echo 'LANG=C' > /etc/locale.conf
 EOF
 umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
@@ -48,6 +49,21 @@ cp "$BB" "$IR/bin/busybox"
 cp "$LIVE_DIR/init.bin" "$IR/init"; chmod +x "$IR/init"
 for a in sh mount umount mkdir switch_root; do ln -sf /bin/busybox "$IR/bin/$a"; done
 cp "$LIVE_DIR/init" "$IR/init.sh"; chmod +x "$IR/init.sh"
+
+# модули ядра (squashfs/overlay/vfat/iso9660/loop) — распаковываем в initramfs
+MODDIR="$WORK/usr/lib/modules/$(ls "$WORK/usr/lib/modules" | head -1)"
+mkdir -p "$IR/lib/modules"
+for m in fat vfat cdrom isofs loop squashfs overlay; do
+    case "$m" in
+      fat|vfat) p="kernel/fs/fat/$m.ko.zst" ;;
+      cdrom)    p="kernel/drivers/cdrom/cdrom.ko.zst" ;;
+      loop)     p="kernel/drivers/block/loop.ko.zst" ;;
+      isofs)    p="kernel/fs/isofs/isofs.ko.zst" ;;
+      squashfs) p="kernel/fs/squashfs/squashfs.ko.zst" ;;
+      overlay)  p="kernel/fs/overlayfs/overlay.ko.zst" ;;
+    esac
+    [ -f "$MODDIR/$p" ] && zstd -dc "$MODDIR/$p" > "$IR/lib/modules/$m.ko" 2>/dev/null
+done
 (cd "$IR" && find . | cpio -o -H newc 2>/dev/null | zstd -f -o "$LIVE_DIR/initramfs.img")
 rm -rf "$IR"
 
@@ -81,7 +97,7 @@ mcopy -i "$EFI" "$ECONF" ::loader/entries/meow.conf
 # root.squashfs кладём на ISO (ISO9660); live-init найдёт его через /dev/sr0
 cp "$LIVE_DIR/root.squashfs" "$ISO/root.squashfs"
 
-xorriso -as mkisofs -iso-level 3 -o "$ISO_OUT" -e efiboot.img -no-emul-boot "$EFI" "$ISO"
+xorriso -as mkisofs -iso-level 3 -V MEOW_LIVE -e efiboot.img -no-emul-boot -isohybrid-gpt-basdat -o "$ISO_OUT" "$EFI" "$ISO"
 rm -f "$LCONF" "$ECONF"
 
 echo "ISO готов: $ISO_OUT"
