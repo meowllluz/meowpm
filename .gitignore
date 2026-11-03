@@ -14,3 +14,4 @@
 live/root.squashfs
 live/initramfs.img
 live/efiboot.img
+live/init.bin

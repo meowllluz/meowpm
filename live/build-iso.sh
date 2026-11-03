@@ -36,18 +36,18 @@ echo "== 2/5 squashfs =="
 rm -f "$LIVE_DIR/root.squashfs"
 mksquashfs "$WORK" "$LIVE_DIR/root.squashfs" -comp zstd -noappend
 
-# --- 3. initramfs: /init = busybox (бинарный), rcS = скрипт через inittab ---
+# --- 3. initramfs: /init = static C (mount + exec busybox sh /init.sh) ---
 echo "== 3/5 initramfs =="
 BB="$WORK/usr/bin/busybox.static"
 [ -e "$BB" ] || BB="$(find "$WORK" -name 'busybox.static' -type f 2>/dev/null | head -1)"
 [ -n "$BB" ] || { echo "нет busybox static"; exit 1; }
+gcc -static -O2 -s "$LIVE_DIR/init.c" -o "$LIVE_DIR/init.bin" || { echo "gcc static не собрал init"; exit 1; }
 IR="/tmp/meow-initramfs"; rm -rf "$IR"
-mkdir -p "$IR/bin" "$IR/etc/init.d" "$IR/proc" "$IR/sys" "$IR/dev" "$IR/run"
+mkdir -p "$IR/bin" "$IR/proc" "$IR/sys" "$IR/dev" "$IR/run"
 cp "$BB" "$IR/bin/busybox"
-cp "$BB" "$IR/init"    # /init = busybox (ядро exec напрямую, без shebang)
+cp "$LIVE_DIR/init.bin" "$IR/init"; chmod +x "$IR/init"
 for a in sh mount umount mkdir switch_root; do ln -sf /bin/busybox "$IR/bin/$a"; done
-printf '::sysinit:/etc/init.d/rcS\n::ctrlaltdel:/bin/umount -a -r\n' > "$IR/etc/inittab"
-cp "$LIVE_DIR/init" "$IR/etc/init.d/rcS"; chmod +x "$IR/etc/init.d/rcS"
+cp "$LIVE_DIR/init" "$IR/init.sh"; chmod +x "$IR/init.sh"
 (cd "$IR" && find . | cpio -o -H newc 2>/dev/null | zstd -f -o "$LIVE_DIR/initramfs.img")
 rm -rf "$IR"
 
