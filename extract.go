@@ -246,6 +246,27 @@ func detectStrip(archive string) (int, error) {
 	return 0, nil
 }
 
+// permBits сохраняет setuid/setgid/sticky: os.FileMode.Perm() их отбрасывает,
+// а без них doas/passwd/su/mount в установленной системе не работают.
+func permBits(m os.FileMode) os.FileMode {
+	return m & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+}
+
+// modeString — unix-режим для записи в БД ("4755", "0644").
+func modeString(m os.FileMode) string {
+	b := uint32(m.Perm())
+	if m&os.ModeSetuid != 0 {
+		b |= 04000
+	}
+	if m&os.ModeSetgid != 0 {
+		b |= 02000
+	}
+	if m&os.ModeSticky != 0 {
+		b |= 01000
+	}
+	return fmt.Sprintf("%04o", b)
+}
+
 func copyFile(src, dst string, mode os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -263,7 +284,11 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		return err
+	}
+	// umask при создании срезает биты — ставим режим явно.
+	return os.Chmod(dst, mode)
 }
 
 func place(src, dst string) error {
@@ -271,6 +296,7 @@ func place(src, dst string) error {
 	if err != nil {
 		return err
 	}
+	mode := permBits(info.Mode())
 	switch {
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := os.Readlink(src)
@@ -280,13 +306,13 @@ func place(src, dst string) error {
 		os.Remove(dst)
 		return os.Symlink(target, dst)
 	case info.IsDir():
-		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+		if err := os.MkdirAll(dst, mode.Perm()); err != nil {
 			return err
 		}
-		return os.Chmod(dst, info.Mode().Perm())
+		return os.Chmod(dst, mode)
 	default:
 		os.Remove(dst)
-		return copyFile(src, dst, info.Mode().Perm())
+		return copyFile(src, dst, mode)
 	}
 }
 
@@ -327,7 +353,7 @@ func distribute(tmpdir string, files map[string]FileInfo, logf *os.File) (map[st
 					}
 					fmt.Fprintf(logf, "warning: %s differs, saved as .meow-new\n", target)
 					out[target+".meow-new"] = FileInfo{
-						Mode:   fmt.Sprintf("%04o", info.Mode().Perm()),
+						Mode:   modeString(info.Mode()),
 						SHA256: sha256File(nf),
 					}
 					return nil
@@ -337,7 +363,7 @@ func distribute(tmpdir string, files map[string]FileInfo, logf *os.File) (map[st
 		if err := place(path, dst); err != nil {
 			return err
 		}
-		fi := FileInfo{Mode: fmt.Sprintf("%04o", info.Mode().Perm())}
+		fi := FileInfo{Mode: modeString(info.Mode())}
 		if isRegular && strings.HasPrefix(target, "/etc/") {
 			fi.SHA256 = sha256File(dst)
 		}

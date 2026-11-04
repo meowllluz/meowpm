@@ -56,3 +56,28 @@ func TestSha256File(t *testing.T) {
 		t.Errorf("expected empty for missing file, got %q", got)
 	}
 }
+
+// setuid/setgid/sticky не должны теряться: Perm() режет эти биты, а без
+// setuid-бита doas/passwd/su в установленной системе не работают.
+func TestModeBitsPreserved(t *testing.T) {
+	cases := []struct {
+		mode os.FileMode
+		want string
+	}{
+		{0755, "0755"},
+		{0644, "0644"},
+		{0755 | os.ModeSetuid, "4755"},
+		{0755 | os.ModeSetgid, "2755"},
+		{0777 | os.ModeSticky, "1777"},
+		{0755 | os.ModeSetuid | os.ModeSetgid, "6755"},
+		{os.ModeDir | 0755, "0755"},
+	}
+	for _, c := range cases {
+		if got := modeString(c.mode); got != c.want {
+			t.Errorf("modeString(%v) = %q, want %q", c.mode, got, c.want)
+		}
+		if got := permBits(c.mode); got != c.mode&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) {
+			t.Errorf("permBits(%v) = %v", c.mode, got)
+		}
+	}
+}

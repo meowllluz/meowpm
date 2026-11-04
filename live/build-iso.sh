@@ -10,12 +10,21 @@ WORK="${WORK:-$MEOW_DIR/.live-rootfs}"
 ISO_OUT="${ISO_OUT:-$MEOW_DIR/meow-live.iso}"
 ROOTFS_TAR="$MEOW_DIR/rootfs.tar.zst"
 
+[ "$(id -u)" = 0 ] || { echo "build-iso: запускай через sudo" >&2; exit 1; }
 [ -f "$ROOTFS_TAR" ] || { echo "нет $ROOTFS_TAR — сначала собери rootfs"; exit 1; }
+
+# архив установщика должен быть root-овым и с setuid, иначе поставится битая система
+ARCHIVE_LIST="$(zstd -dc "$ROOTFS_TAR" | tar -tvf -)"
+BAD_OWNER="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$2 != "0/0" {c++} END {print c+0}')"
+SUID_COUNT="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$1 ~ /^.[-]/ && $1 ~ /s/ {c++} END {print c+0}')"
+[ "$BAD_OWNER" = 0 ] || { echo "build-iso: rootfs.tar.zst собран не от root ($BAD_OWNER записей)" >&2; exit 1; }
+[ "$SUID_COUNT" -ge 3 ] || { echo "build-iso: в rootfs.tar.zst нет setuid-битов ($SUID_COUNT)" >&2; exit 1; }
+echo "   архив: владельцы 0/0, setuid-файлов $SUID_COUNT"
 
 # --- 1. live rootfs = установочный rootfs + live-пакеты (включая dracut) ---
 echo "== 1/5 live rootfs =="
 rm -rf "$WORK"; mkdir -p "$WORK"
-zstd -dc "$ROOTFS_TAR" | tar -x -C "$WORK"
+zstd -dc "$ROOTFS_TAR" | tar -x --numeric-owner -C "$WORK"
 mkdir -p "$WORK/dev" "$WORK/proc" "$WORK/sys" "$WORK/run" "$WORK/tmp" "$WORK/var/tmp"
 
 mount --bind /dev "$WORK/dev"; mount --bind /proc "$WORK/proc"; mount --bind /sys "$WORK/sys"

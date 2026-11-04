@@ -26,6 +26,19 @@ for t in zstd cryptsetup mkfs.vfat mkfs.ext4 bootctl; do
 done
 [ -f "$ROOTFS" ] || die "$ROOTFS не найден"
 
+# --- 0. проверка архива ---
+# rootfs.tar.zst должен быть упакован от root: иначе в установленной системе все
+# файлы окажутся uid 1000, а su/doas/passwd — без setuid (не работают).
+echo "проверка $ROOTFS..."
+ARCHIVE_LIST="$(zstd -dc "$ROOTFS" | tar -tvf - 2>/dev/null)" || die "не читается $ROOTFS"
+BAD_OWNER="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$2 != "0/0" {c++} END {print c+0}')"
+SUID_COUNT="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$1 ~ /^.[-]/ && $1 ~ /s/ {c++} END {print c+0}')"
+[ "$BAD_OWNER" = 0 ] || die "rootfs.tar.zst собран не от root ($BAD_OWNER записей с чужим владельцем).
+  Пересобери образ: sudo ./scripts/build-rootfs.sh (он пакует архив с --owner=0 --group=0)"
+[ "$SUID_COUNT" -ge 3 ] || die "в rootfs.tar.zst нет setuid-битов ($SUID_COUNT) — su/doas/passwd не заработают.
+  Пересобери образ: sudo ./scripts/build-rootfs.sh"
+echo "   ок: владельцы 0/0, setuid-файлов $SUID_COUNT"
+
 # --- 1. диск и ручная разметка ---
 lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
 ask "Диск (напр. /dev/vda): " DISK
@@ -90,15 +103,18 @@ case "$FS" in
     *) die "неизвестная ФС: $FS" ;;
 esac
 
-# --- 5. mount root + EFI ---
+# --- 5. mount root, распаковка, и только потом EFI ---
+# EFI монтируется после распаковки: tar не может выставить владельца каталогу
+# ./boot на vfat ("Cannot change ownership to uid 1000: Operation not permitted").
 mkdir -p "$MNT"
 mount "$ROOTDEV" "$MNT" || die "не удалось смонтировать $ROOTDEV в $MNT"
+
+echo "распаковка rootfs..."
+zstd -dc "$ROOTFS" | tar -x --numeric-owner -C "$MNT" \
+    || die "распаковка не удалась (не хватило места? см. df -h $MNT)"
+
 mkdir -p "$MNT/boot"
 mount "$EFIPART" "$MNT/boot" || die "не удалось смонтировать $EFIPART в $MNT/boot ($(fs_of "$EFIPART"))"
-
-# --- 6. распаковка rootfs ---
-echo "распаковка rootfs..."
-zstd -dc "$ROOTFS" | tar -x -C "$MNT"
 
 # rootfs.tar.zst без виртуальных точек — создаём их
 mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run" "$MNT/tmp" "$MNT/var/tmp"
