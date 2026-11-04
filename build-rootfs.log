@@ -2,9 +2,11 @@
     void-x86_64-ROOTFS-20250202.tar.xz
 == 2/8 mount + bootstrap пакетов ==
 [*] Updating repository `https://repo-default.voidlinux.org/current/x86_64-repodata' ...
-x86_64-repodata: [2167KB 0%] 150MB/s ETA: 00m00s
-x86_64-repodata: [2167KB 20%] 674KB/s ETA: 00m03s
-x86_64-repodata: 2167KB [avg rate: 3259KB/s]
+x86_64-repodata: [2167KB 0%] 170MB/s ETA: 00m00s
+x86_64-repodata: [2167KB 11%] 351KB/s ETA: 00m07s
+x86_64-repodata: [2167KB 35%] 452KB/s ETA: 00m03s
+x86_64-repodata: [2167KB 69%] 534KB/s ETA: 00m01s
+x86_64-repodata: 2167KB [avg rate: 769KB/s]
 5 packages will be downloaded:
 
 5 packages will be updated:
@@ -21,30 +23,35 @@ Space available on disk:       190GB
 
 
 [*] Downloading packages
-glibc-2.41_1.x86_64.xbps.sig2: [512B 100%] 38MB/s ETA: 00m00s
-glibc-2.41_1.x86_64.xbps.sig2: 512B [avg rate: 38MB/s]
-glibc-2.41_1.x86_64.xbps: [8956KB 0%] 140MB/s ETA: 00m00s
-glibc-2.41_1.x86_64.xbps: [8956KB 38%] 3602KB/s ETA: 00m01s
-glibc-2.41_1.x86_64.xbps: [8956KB 78%] 3616KB/s ETA: 00m00s
-glibc-2.41_1.x86_64.xbps: 8956KB [avg rate: 4579KB/s]
+glibc-2.41_1.x86_64.xbps.sig2: [512B 100%] 24MB/s ETA: 00m00s
+glibc-2.41_1.x86_64.xbps.sig2: 512B [avg rate: 24MB/s]
+glibc-2.41_1.x86_64.xbps: [8956KB 0%] 150MB/s ETA: 00m00s
+glibc-2.41_1.x86_64.xbps: [8956KB 5%] 1188KB/s ETA: 00m18s
+glibc-2.41_1.x86_64.xbps: [8956KB 18%] 1147KB/s ETA: 00m09s
+glibc-2.41_1.x86_64.xbps: [8956KB 36%] 1355KB/s ETA: 00m05s
+glibc-2.41_1.x86_64.xbps: [8956KB 59%] 1562KB/s ETA: 00m02s
+glibc-2.41_1.x86_64.xbps: [8956KB 80%] 1630KB/s ETA: 00m01s
+glibc-2.41_1.x86_64.xbps: 8956KB [avg rate: 2023KB/s]
 glibc-2.41_1: verifying RSA signature...
-libcrypto3-3.6.5_1.x86_64.xbps.sig2: [512B 100%] 20MB/s ETA: 00m00s
-libcrypto3-3.6.5_1.x86_64.xbps.sig2: 512B [avg rate: 20MB/s]
-libcrypto3-3.6.5_1.x86_64.xbps: [2142KB 0%] 118MB/s ETA: 00m00s
-libcrypto3-3.6.5_1.x86_64.xbps: 2142KB [avg rate: 62GB/s]
+libcrypto3-3.6.5_1.x86_64.xbps.sig2: [512B 100%] 26MB/s ETA: 00m00s
+libcrypto3-3.6.5_1.x86_64.xbps.sig2: 512B [avg rate: 26MB/s]
+libcrypto3-3.6.5_1.x86_64.xbps: [2142KB 0%] 122MB/s ETA: 00m00s
+libcrypto3-3.6.5_1.x86_64.xbps: [2142KB 75%] 1868KB/s ETA: 00m00s
+libcrypto3-3.6.5_1.x86_64.xbps: 2142KB [avg rate: 2476KB/s]
 libcrypto3-3.6.5_1: verifying RSA signature...
-libssl3-3.6.5_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
-libssl3-3.6.5_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-libssl3-3.6.5_1.x86_64.xbps: [434KB 0%] 135MB/s ETA: 00m00s
-libssl3-3.6.5_1.x86_64.xbps: 434KB [avg rate: 14GB/s]
+libssl3-3.6.5_1.x86_64.xbps.sig2: [512B 100%] 20MB/s ETA: 00m00s
+libssl3-3.6.5_1.x86_64.xbps.sig2: 512B [avg rate: 20MB/s]
+libssl3-3.6.5_1.x86_64.xbps: [434KB 0%] 115MB/s ETA: 00m00s
+libssl3-3.6.5_1.x86_64.xbps: [434KB 92%] 793KB/s ETA: 00m00s
+libssl3-3.6.5_1.x86_64.xbps: 434KB [avg rate: 861KB/s]
 libssl3-3.6.5_1: verifying RSA signature...
-libxbps-0.60.7_1.x86_64.xbps.sig2: [512B 100%] 24MB/s ETA: 00m00s
-libxbps-0.60.7_1.x86_64.xbps.sig2: 512B [avg rate: 24MB/s]
-libxbps-0.60.7_1.x86_64.xbps: [143KB 2%] 140MB/s ETA: 00m00s
-libxbps-0.60.7_1.x86_64.xbps: 143KB [avg rate: 4976MB/s]
+libxbps-0.60.7_1.x86_64.xbps.sig2: [512B 100%] 21MB/s ETA: 00m00s
+libxbps-0.60.7_1.x86_64.xbps.sig2: 512B [avg rate: 21MB/s]
+libxbps-0.60.7_1.x86_64.xbps: [143KB 2%] 100MB/s ETA: 00m00s
+libxbps-0.60.7_1.x86_64.xbps: 143KB [avg rate: 3573MB/s]
 libxbps-0.60.7_1: verifying RSA signature...
-xbps-0.60.7_1.x86_64.xbps.sig2: [512B 100%] 26MB/s ETA: 00m00s
-xbps-0.60.7_1.x86_64.xbps.sig2: 512B [avg rate: 26MB/s]
+xbps-0.60.7_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+xbps-0.60.7_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
 xbps-0.60.7_1.x86_64.xbps: [118KB 3%] 112MB/s ETA: 00m00s
 xbps-0.60.7_1.x86_64.xbps: 118KB [avg rate: 3301MB/s]
 xbps-0.60.7_1: verifying RSA signature...
@@ -150,56 +157,55 @@ cgroup1 support.
 
 
 [*] Downloading packages
-libunistring-1.0_1.x86_64.xbps.sig2: [512B 100%] 38MB/s ETA: 00m00s
-libunistring-1.0_1.x86_64.xbps.sig2: 512B [avg rate: 38MB/s]
-libunistring-1.0_1.x86_64.xbps: [583KB 0%] 140MB/s ETA: 00m00s
-libunistring-1.0_1.x86_64.xbps: 583KB [avg rate: 20GB/s]
+libunistring-1.0_1.x86_64.xbps.sig2: [512B 100%] 33MB/s ETA: 00m00s
+libunistring-1.0_1.x86_64.xbps.sig2: 512B [avg rate: 33MB/s]
+libunistring-1.0_1.x86_64.xbps: [583KB 0%] 115MB/s ETA: 00m00s
+libunistring-1.0_1.x86_64.xbps: 583KB [avg rate: 16GB/s]
 libunistring-1.0_1: verifying RSA signature...
-libidn2-2.3.8_1.x86_64.xbps.sig2: [512B 100%] 24MB/s ETA: 00m00s
-libidn2-2.3.8_1.x86_64.xbps.sig2: 512B [avg rate: 24MB/s]
-libidn2-2.3.8_1.x86_64.xbps: [176KB 2%] 126MB/s ETA: 00m00s
-libidn2-2.3.8_1.x86_64.xbps: 176KB [avg rate: 5530MB/s]
+libidn2-2.3.8_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
+libidn2-2.3.8_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
+libidn2-2.3.8_1.x86_64.xbps: [176KB 2%] 122MB/s ETA: 00m00s
+libidn2-2.3.8_1.x86_64.xbps: 176KB [avg rate: 5357MB/s]
 libidn2-2.3.8_1: verifying RSA signature...
-c-ares-1.34.9_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
-c-ares-1.34.9_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-c-ares-1.34.9_1.x86_64.xbps: [111KB 3%] 100MB/s ETA: 00m00s
-c-ares-1.34.9_1.x86_64.xbps: 111KB [avg rate: 2773MB/s]
+c-ares-1.34.9_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+c-ares-1.34.9_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
+c-ares-1.34.9_1.x86_64.xbps: [111KB 3%] 118MB/s ETA: 00m00s
+c-ares-1.34.9_1.x86_64.xbps: 111KB [avg rate: 3277MB/s]
 c-ares-1.34.9_1: verifying RSA signature...
 libev-4.33_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 libev-4.33_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-libev-4.33_1.x86_64.xbps: [31KB 12%] 150MB/s ETA: 00m00s
-libev-4.33_1.x86_64.xbps: 31KB [avg rate: 1179MB/s]
+libev-4.33_1.x86_64.xbps: [31KB 12%] 130MB/s ETA: 00m00s
+libev-4.33_1.x86_64.xbps: 31KB [avg rate: 1021MB/s]
 libev-4.33_1: verifying RSA signature...
 jansson-2.15.0_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 jansson-2.15.0_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-jansson-2.15.0_1.x86_64.xbps: [60KB 6%] 135MB/s ETA: 00m00s
-jansson-2.15.0_1.x86_64.xbps: 60KB [avg rate: 2011MB/s]
+jansson-2.15.0_1.x86_64.xbps: [60KB 6%] 140MB/s ETA: 00m00s
+jansson-2.15.0_1.x86_64.xbps: 60KB [avg rate: 2083MB/s]
 jansson-2.15.0_1: verifying RSA signature...
-nghttp3-1.18.0_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
-nghttp3-1.18.0_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-nghttp3-1.18.0_1.x86_64.xbps: [73KB 5%] 145MB/s ETA: 00m00s
-nghttp3-1.18.0_1.x86_64.xbps: 73KB [avg rate: 2650MB/s]
+nghttp3-1.18.0_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+nghttp3-1.18.0_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
+nghttp3-1.18.0_1.x86_64.xbps: [73KB 5%] 140MB/s ETA: 00m00s
+nghttp3-1.18.0_1.x86_64.xbps: 73KB [avg rate: 2555MB/s]
 nghttp3-1.18.0_1: verifying RSA signature...
-ngtcp2-1.26.0_1.x86_64.xbps.sig2: [512B 100%] 21MB/s ETA: 00m00s
-ngtcp2-1.26.0_1.x86_64.xbps.sig2: 512B [avg rate: 21MB/s]
-ngtcp2-1.26.0_1.x86_64.xbps: [175KB 2%] 140MB/s ETA: 00m00s
-ngtcp2-1.26.0_1.x86_64.xbps: 175KB [avg rate: 6104MB/s]
+ngtcp2-1.26.0_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
+ngtcp2-1.26.0_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
+ngtcp2-1.26.0_1.x86_64.xbps: [175KB 2%] 115MB/s ETA: 00m00s
+ngtcp2-1.26.0_1.x86_64.xbps: 175KB [avg rate: 5027MB/s]
 ngtcp2-1.26.0_1: verifying RSA signature...
-nghttp2-1.70.0_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
-nghttp2-1.70.0_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
-nghttp2-1.70.0_1.x86_64.xbps: [978KB 0%] 217MB/s ETA: 00m00s
-nghttp2-1.70.0_1.x86_64.xbps: [978KB 42%] 2331KB/s ETA: 00m01s
-nghttp2-1.70.0_1.x86_64.xbps: 978KB [avg rate: 5482KB/s]
+nghttp2-1.70.0_1.x86_64.xbps.sig2: [512B 100%] 29MB/s ETA: 00m00s
+nghttp2-1.70.0_1.x86_64.xbps.sig2: 512B [avg rate: 29MB/s]
+nghttp2-1.70.0_1.x86_64.xbps: [978KB 0%] 140MB/s ETA: 00m00s
+nghttp2-1.70.0_1.x86_64.xbps: 978KB [avg rate: 33GB/s]
 nghttp2-1.70.0_1: verifying RSA signature...
-public-suffix-2026.10.22_1.x86_64.xbps.sig2: [512B 100%] 21MB/s ETA: 00m00s
-public-suffix-2026.10.22_1.x86_64.xbps.sig2: 512B [avg rate: 21MB/s]
-public-suffix-2026.10.22_1.x86_64.xbps: [134KB 2%] 126MB/s ETA: 00m00s
-public-suffix-2026.10.22_1.x86_64.xbps: 134KB [avg rate: 4224MB/s]
+public-suffix-2026.10.22_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+public-suffix-2026.10.22_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
+public-suffix-2026.10.22_1.x86_64.xbps: [134KB 2%] 156MB/s ETA: 00m00s
+public-suffix-2026.10.22_1.x86_64.xbps: 134KB [avg rate: 5238MB/s]
 public-suffix-2026.10.22_1: verifying RSA signature...
-libpsl-0.23.3_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
-libpsl-0.23.3_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
-libpsl-0.23.3_1.x86_64.xbps: [76KB 5%] 135MB/s ETA: 00m00s
-libpsl-0.23.3_1.x86_64.xbps: 76KB [avg rate: 2544MB/s]
+libpsl-0.23.3_1.x86_64.xbps.sig2: [512B 100%] 19MB/s ETA: 00m00s
+libpsl-0.23.3_1.x86_64.xbps.sig2: 512B [avg rate: 19MB/s]
+libpsl-0.23.3_1.x86_64.xbps: [76KB 5%] 140MB/s ETA: 00m00s
+libpsl-0.23.3_1.x86_64.xbps: 76KB [avg rate: 2635MB/s]
 libpsl-0.23.3_1: verifying RSA signature...
 libssh2-1.11.1_2.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 libssh2-1.11.1_2.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
@@ -208,36 +214,34 @@ libssh2-1.11.1_2.x86_64.xbps: 127KB [avg rate: 4428MB/s]
 libssh2-1.11.1_2: verifying RSA signature...
 libcurl-8.22.0_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 libcurl-8.22.0_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-libcurl-8.22.0_1.x86_64.xbps: [458KB 0%] 150MB/s ETA: 00m00s
-libcurl-8.22.0_1.x86_64.xbps: [458KB 66%] 1816KB/s ETA: 00m00s
-libcurl-8.22.0_1.x86_64.xbps: 458KB [avg rate: 2739KB/s]
+libcurl-8.22.0_1.x86_64.xbps: [458KB 0%] 135MB/s ETA: 00m00s
+libcurl-8.22.0_1.x86_64.xbps: 458KB [avg rate: 15GB/s]
 libcurl-8.22.0_1: verifying RSA signature...
 curl-8.22.0_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 curl-8.22.0_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-curl-8.22.0_1.x86_64.xbps: [268KB 1%] 130MB/s ETA: 00m00s
-curl-8.22.0_1.x86_64.xbps: 268KB [avg rate: 8729MB/s]
+curl-8.22.0_1.x86_64.xbps: [268KB 1%] 163MB/s ETA: 00m00s
+curl-8.22.0_1.x86_64.xbps: 268KB [avg rate: 11GB/s]
 curl-8.22.0_1: verifying RSA signature...
 libzstd-1.5.7_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 libzstd-1.5.7_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-libzstd-1.5.7_1.x86_64.xbps: [330KB 1%] 140MB/s ETA: 00m00s
-libzstd-1.5.7_1.x86_64.xbps: [330KB 82%] 532KB/s ETA: 00m00s
-libzstd-1.5.7_1.x86_64.xbps: 330KB [avg rate: 644KB/s]
+libzstd-1.5.7_1.x86_64.xbps: [330KB 1%] 115MB/s ETA: 00m00s
+libzstd-1.5.7_1.x86_64.xbps: 330KB [avg rate: 9469MB/s]
 libzstd-1.5.7_1: verifying RSA signature...
 zstd-1.5.7_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 zstd-1.5.7_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-zstd-1.5.7_1.x86_64.xbps: [150KB 2%] 103MB/s ETA: 00m00s
-zstd-1.5.7_1.x86_64.xbps: 150KB [avg rate: 3860MB/s]
+zstd-1.5.7_1.x86_64.xbps: [150KB 2%] 126MB/s ETA: 00m00s
+zstd-1.5.7_1.x86_64.xbps: 150KB [avg rate: 4731MB/s]
 zstd-1.5.7_1: verifying RSA signature...
 runit-void-20250212_4.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 runit-void-20250212_4.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-runit-void-20250212_4.x86_64.xbps: [32KB 12%] 106MB/s ETA: 00m00s
-runit-void-20250212_4.x86_64.xbps: 32KB [avg rate: 846MB/s]
+runit-void-20250212_4.x86_64.xbps: [32KB 12%] 135MB/s ETA: 00m00s
+runit-void-20250212_4.x86_64.xbps: 32KB [avg rate: 1079MB/s]
 runit-void-20250212_4: verifying RSA signature...
-runit-2.3.1_2.x86_64.xbps.sig2: [512B 100%] 19MB/s ETA: 00m00s
-runit-2.3.1_2.x86_64.xbps.sig2: 512B [avg rate: 19MB/s]
-runit-2.3.1_2.x86_64.xbps: [405KB 0%] 135MB/s ETA: 00m00s
-runit-2.3.1_2.x86_64.xbps: [405KB 55%] 1250KB/s ETA: 00m00s
-runit-2.3.1_2.x86_64.xbps: 405KB [avg rate: 2261KB/s]
+runit-2.3.1_2.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
+runit-2.3.1_2.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
+runit-2.3.1_2.x86_64.xbps: [405KB 0%] 122MB/s ETA: 00m00s
+runit-2.3.1_2.x86_64.xbps: [405KB 82%] 1990KB/s ETA: 00m00s
+runit-2.3.1_2.x86_64.xbps: 405KB [avg rate: 2400KB/s]
 runit-2.3.1_2: verifying RSA signature...
 
 [*] Collecting package files
@@ -352,42 +356,40 @@ Space available on disk:       190GB
 
 
 [*] Downloading packages
-seatd-0.9.3_1.x86_64.xbps.sig2: [512B 100%] 35MB/s ETA: 00m00s
-seatd-0.9.3_1.x86_64.xbps.sig2: 512B [avg rate: 35MB/s]
-seatd-0.9.3_1.x86_64.xbps: [24KB 16%] 118MB/s ETA: 00m00s
-seatd-0.9.3_1.x86_64.xbps: 24KB [avg rate: 717MB/s]
+seatd-0.9.3_1.x86_64.xbps.sig2: [512B 100%] 33MB/s ETA: 00m00s
+seatd-0.9.3_1.x86_64.xbps.sig2: 512B [avg rate: 33MB/s]
+seatd-0.9.3_1.x86_64.xbps: [24KB 16%] 145MB/s ETA: 00m00s
+seatd-0.9.3_1.x86_64.xbps: 24KB [avg rate: 876MB/s]
 seatd-0.9.3_1: verifying RSA signature...
-openresolv-3.17.4_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
-openresolv-3.17.4_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-openresolv-3.17.4_1.x86_64.xbps: [24KB 16%] 109MB/s ETA: 00m00s
-openresolv-3.17.4_1.x86_64.xbps: 24KB [avg rate: 661MB/s]
+openresolv-3.17.4_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+openresolv-3.17.4_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
+openresolv-3.17.4_1.x86_64.xbps: [24KB 16%] 115MB/s ETA: 00m00s
+openresolv-3.17.4_1.x86_64.xbps: 24KB [avg rate: 700MB/s]
 openresolv-3.17.4_1: verifying RSA signature...
 iwd-3.12_1.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
 iwd-3.12_1.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-iwd-3.12_1.x86_64.xbps: [869KB 0%] 140MB/s ETA: 00m00s
-iwd-3.12_1.x86_64.xbps: [869KB 88%] 1178KB/s ETA: 00m00s
-iwd-3.12_1.x86_64.xbps: 869KB [avg rate: 1333KB/s]
+iwd-3.12_1.x86_64.xbps: [869KB 0%] 156MB/s ETA: 00m00s
+iwd-3.12_1.x86_64.xbps: 869KB [avg rate: 33GB/s]
 iwd-3.12_1: verifying RSA signature...
-dbus-libs-1.16.2_2.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
-dbus-libs-1.16.2_2.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
-dbus-libs-1.16.2_2.x86_64.xbps: [144KB 2%] 145MB/s ETA: 00m00s
-dbus-libs-1.16.2_2.x86_64.xbps: 144KB [avg rate: 5209MB/s]
+dbus-libs-1.16.2_2.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
+dbus-libs-1.16.2_2.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
+dbus-libs-1.16.2_2.x86_64.xbps: [144KB 2%] 106MB/s ETA: 00m00s
+dbus-libs-1.16.2_2.x86_64.xbps: 144KB [avg rate: 3801MB/s]
 dbus-libs-1.16.2_2: verifying RSA signature...
 expat-2.9.0_1.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
 expat-2.9.0_1.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
-expat-2.9.0_1.x86_64.xbps: [75KB 5%] 140MB/s ETA: 00m00s
-expat-2.9.0_1.x86_64.xbps: 75KB [avg rate: 2620MB/s]
+expat-2.9.0_1.x86_64.xbps: [75KB 5%] 115MB/s ETA: 00m00s
+expat-2.9.0_1.x86_64.xbps: 75KB [avg rate: 2157MB/s]
 expat-2.9.0_1: verifying RSA signature...
-dbus-1.16.2_2.x86_64.xbps.sig2: [512B 100%] 24MB/s ETA: 00m00s
-dbus-1.16.2_2.x86_64.xbps.sig2: 512B [avg rate: 24MB/s]
-dbus-1.16.2_2.x86_64.xbps: [152KB 2%] 140MB/s ETA: 00m00s
-dbus-1.16.2_2.x86_64.xbps: 152KB [avg rate: 5313MB/s]
+dbus-1.16.2_2.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
+dbus-1.16.2_2.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
+dbus-1.16.2_2.x86_64.xbps: [152KB 2%] 170MB/s ETA: 00m00s
+dbus-1.16.2_2.x86_64.xbps: 152KB [avg rate: 6468MB/s]
 dbus-1.16.2_2: verifying RSA signature...
-wpa_supplicant-2.12_2.x86_64.xbps.sig2: [512B 100%] 22MB/s ETA: 00m00s
-wpa_supplicant-2.12_2.x86_64.xbps.sig2: 512B [avg rate: 22MB/s]
-wpa_supplicant-2.12_2.x86_64.xbps: [1479KB 0%] 163MB/s ETA: 00m00s
-wpa_supplicant-2.12_2.x86_64.xbps: [1479KB 29%] 1232KB/s ETA: 00m02s
-wpa_supplicant-2.12_2.x86_64.xbps: 1479KB [avg rate: 4219KB/s]
+wpa_supplicant-2.12_2.x86_64.xbps.sig2: [512B 100%] 23MB/s ETA: 00m00s
+wpa_supplicant-2.12_2.x86_64.xbps.sig2: 512B [avg rate: 23MB/s]
+wpa_supplicant-2.12_2.x86_64.xbps: [1479KB 0%] 112MB/s ETA: 00m00s
+wpa_supplicant-2.12_2.x86_64.xbps: 1479KB [avg rate: 40GB/s]
 Created _seatd system group.
 Created dbus (gid: 22) system group.
 Created dbus (uid: 22) system user.
@@ -432,7 +434,14 @@ wpa_supplicant-2.12_2: installed successfully.
 == 4/8 перенос xbps -> meow ==
 pkgdb: 122 packages
 converted: 122, skipped: 0, failed: 0
-== 5/8 удаление xbps через meow ==
+== 5/8 удаление xbps + index + doas ==
    индекс репозитория (meow sync)
-meow: dependency 'doas' not found
-build-rootfs: ОШИБКА на строке 65
+[1/2 0%] installing libxcrypt-compat-4.4.38_1
+[2/2 50%] installing opendoas-6.8.2_2
+[2/2 100%] done
+== 6/8 наложение overlay ==
+   брендинг: PRETTY_NAME="Meow Linux"
+== 7/8 очистка ==
+== 8/8 упаковка rootfs.tar.zst ==
+   проверка архива:
+build-rootfs: в архиве нет ./etc/shadow

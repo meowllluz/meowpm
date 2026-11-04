@@ -1,8 +1,8 @@
 #!/bin/sh
-# meow-install — инсталлятор Meow Linux (CLI).
-# Разметка вручную (cfdisk) -> FAT32 на EFI -> LUKS (опц.) -> mkfs root
-# -> распаковка rootfs.tar.zst -> chroot-настройка (ядро+dracut+systemd-boot,
-# hostname, пароли, пользователь, doas/sudo, fstab по UUID).
+# meow-install — Meow Linux installer (CLI).
+# Manual partitioning (cfdisk) -> FAT32 on the ESP -> optional LUKS -> mkfs root
+# -> unpack rootfs.tar.zst -> chroot setup (kernel + dracut + systemd-boot,
+# hostname, passwords, user, doas/sudo, fstab by UUID).
 set -eu
 
 ROOTFS="${MEOW_ROOTFS:-/rootfs.tar.zst}"
@@ -11,70 +11,83 @@ MNT="/mnt"
 die() { echo "meow-install: $*" >&2; exit 1; }
 warn() { echo "meow-install: $*" >&2; }
 ask() { printf "%s" "$1"; read -r "$2"; }
-
 fs_of() { blkid -s TYPE -o value "$1" 2>/dev/null || true; }
+size_of() { lsblk -dno SIZE "$1" 2>/dev/null | tr -d ' '; }
 
 cleanup() {
     umount -R "$MNT" 2>/dev/null || true
-    [ -n "${LUKS_PART:-}" ] && cryptsetup close cryptroot 2>/dev/null || true
+    if [ -n "${LUKS_PART:-}" ]; then cryptsetup close cryptroot 2>/dev/null || true; fi
 }
 trap cleanup EXIT INT TERM
 
 [ "$(id -u)" = 0 ] || die "run as root"
-for t in zstd cryptsetup mkfs.vfat mkfs.ext4 bootctl; do
-    command -v "$t" >/dev/null || die "нет $t"
+for t in zstd cryptsetup mkfs.vfat mkfs.ext4 bootctl blkid; do
+    command -v "$t" >/dev/null || die "missing tool: $t"
 done
-[ -f "$ROOTFS" ] || die "$ROOTFS не найден"
+[ -f "$ROOTFS" ] || die "$ROOTFS not found"
 
-# --- 0. проверка архива ---
-# rootfs.tar.zst должен быть упакован от root: иначе в установленной системе все
-# файлы окажутся uid 1000, а su/doas/passwd — без setuid (не работают).
-echo "проверка $ROOTFS..."
-ARCHIVE_LIST="$(zstd -dc "$ROOTFS" | tar -tvf - 2>/dev/null)" || die "не читается $ROOTFS"
+# --- 0. sanity checks on the install archive ---
+# rootfs.tar.zst must be packed as root: otherwise every installed file is owned
+# by uid 1000 and su/doas/passwd lose their setuid bits (they stop working).
+echo "checking $ROOTFS..."
+ARCHIVE_LIST="$(zstd -dc "$ROOTFS" | tar -tvf - 2>/dev/null)" || die "cannot read $ROOTFS"
 BAD_OWNER="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$2 != "0/0" {c++} END {print c+0}')"
 SUID_COUNT="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$1 ~ /^-/ && $1 ~ /s/ {c++} END {print c+0}')"
-[ "$BAD_OWNER" = 0 ] || die "rootfs.tar.zst собран не от root ($BAD_OWNER записей с чужим владельцем).
-  Пересобери образ: sudo ./scripts/build-rootfs.sh (он пакует архив с --owner=0 --group=0)"
-[ "$SUID_COUNT" -ge 3 ] || die "в rootfs.tar.zst нет setuid-битов ($SUID_COUNT) — su/doas/passwd не заработают.
-  Пересобери образ: sudo ./scripts/build-rootfs.sh"
-echo "   ок: владельцы 0/0, setuid-файлов $SUID_COUNT"
+[ "$BAD_OWNER" = 0 ] || die "rootfs.tar.zst was not packed as root ($BAD_OWNER entries with a foreign owner).
+  rebuild the image: sudo ./scripts/build-rootfs.sh (it packs with --owner=0 --group=0)"
+[ "$SUID_COUNT" -ge 3 ] || die "rootfs.tar.zst has no setuid bits ($SUID_COUNT) - su/doas/passwd would not work.
+  rebuild the image: sudo ./scripts/build-rootfs.sh"
+echo "   ok: owners 0/0, setuid files $SUID_COUNT"
+echo
 
-# --- 1. диск и ручная разметка ---
+# --- 1. target disk and manual partitioning ---
 lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
-ask "Диск (напр. /dev/vda): " DISK
-[ -b "$DISK" ] || die "$DISK не блочное устройство"
+ask "Disk (e.g. /dev/vda): " DISK
+[ -b "$DISK" ] || die "$DISK is not a block device"
 cfdisk "$DISK"
 
 echo
-echo "Текущая разметка $DISK:"
+echo "Current layout of $DISK:"
 lsblk -f "$DISK"
 echo
 
-ask "Раздел root (напр. ${DISK}2): " ROOTPART
-[ -b "$ROOTPART" ] || die "$ROOTPART не блочное устройство"
-ask "EFI-раздел (напр. ${DISK}1, FAT32): " EFIPART
-[ -b "$EFIPART" ] || die "$EFIPART не блочное устройство"
-[ "$ROOTPART" = "$EFIPART" ] && die "root и EFI — один и тот же раздел ($ROOTPART)"
+ask "Root partition (e.g. ${DISK}2): " ROOTPART
+[ -b "$ROOTPART" ] || die "$ROOTPART is not a block device"
+ask "EFI partition (e.g. ${DISK}1, will be formatted FAT32): " EFIPART
+[ -b "$EFIPART" ] || die "$EFIPART is not a block device"
+[ "$ROOTPART" = "$EFIPART" ] && die "root and EFI are the same partition ($ROOTPART)"
 
-# --- 2. EFI всегда FAT32: ставим её сами либо проверяем ---
+# show the mapping before anything is destroyed: answering these two prompts in
+# the wrong order silently wipes the ESP.
+echo
+echo "  root: $ROOTPART  ($(size_of "$ROOTPART"))"
+echo "  EFI : $EFIPART  ($(size_of "$EFIPART"))"
+ask "Is that correct? [Y/n]: " MAP_OK
+case "$MAP_OK" in n|N|no) die "aborted, run meow-install again" ;; esac
+
+ROOT_BYTES="$(blockdev --getsize64 "$ROOTPART" 2>/dev/null || echo 0)"
+if [ "$ROOT_BYTES" -lt $((4 * 1024 * 1024 * 1024)) ]; then
+    warn "root partition is only $((ROOT_BYTES / 1024 / 1024)) MiB; the system needs several GiB"
+fi
+
+# --- 2. the ESP is always FAT32: create it ourselves or verify ---
 efi_type="$(fs_of "$EFIPART")"
 case "$efi_type" in
     vfat|fat|fat32|fat16)
         ;;
     "")
-        warn "на $EFIPART нет файловой системы — форматирую FAT32"
+        warn "$EFIPART has no filesystem - formatting it as FAT32"
         mkfs.vfat -F32 "$EFIPART"
         ;;
     *)
-        die "$EFIPART содержит '$efi_type', а EFI должен быть FAT32.
-  если это правда EFI-раздел: mkfs.vfat -F32 $EFIPART
-  если ты перепутал разделы — перезапусти meow-install и введи их в другом порядке"
+        die "$EFIPART contains '$efi_type', but the EFI partition must be FAT32.
+  if this really is the ESP: mkfs.vfat -F32 $EFIPART
+  if you swapped the partitions: rerun meow-install and answer in the other order"
         ;;
 esac
-EFI_UUID="$(blkid -s UUID -o value "$EFIPART")"
 
-# --- 3. LUKS (опционально) ---
-ask "LUKS-шифрование root? [y/N]: " LUKS
+# --- 3. optional LUKS on root ---
+ask "Encrypt root with LUKS? [y/N]: " LUKS
 LUKS_UUID=""
 case "$LUKS" in
     y|Y|yes)
@@ -89,90 +102,106 @@ case "$LUKS" in
         ;;
 esac
 
-# --- 4. ФС root ---
+# --- 4. root filesystem ---
 if [ -n "$(fs_of "$ROOTDEV")" ]; then
-    warn "на $ROOTDEV уже есть $(fs_of "$ROOTDEV") — установка её сотрёт"
-    ask "Продолжить и отформатировать? [y/N]: " OK
-    case "$OK" in y|Y|yes) ;; *) die "отменено" ;; esac
+    warn "$ROOTDEV already contains $(fs_of "$ROOTDEV") - the installation will erase it"
+    ask "Continue and format it? [y/N]: " OK
+    case "$OK" in y|Y|yes) ;; *) die "aborted" ;; esac
 fi
-ask "ФС root [ext4/btrfs] (ext4): " FS
+ask "Root filesystem [ext4/btrfs] (ext4): " FS
 FS="${FS:-ext4}"
 case "$FS" in
     ext4)  mkfs.ext4 -q "$ROOTDEV" ;;
     btrfs) mkfs.btrfs -q "$ROOTDEV" ;;
-    *) die "неизвестная ФС: $FS" ;;
+    *) die "unknown filesystem: $FS" ;;
 esac
 
-# --- 5. mount root, распаковка, и только потом EFI ---
-# EFI монтируется после распаковки: tar не может выставить владельца каталогу
-# ./boot на vfat ("Cannot change ownership to uid 1000: Operation not permitted").
+# --- 5. mount root, unpack, and only then mount the ESP ---
+# The ESP is mounted after unpacking: tar cannot set the owner of the ./boot
+# entry on vfat ("Cannot change ownership to uid 1000: Operation not permitted").
 mkdir -p "$MNT"
-mount "$ROOTDEV" "$MNT" || die "не удалось смонтировать $ROOTDEV в $MNT"
+mount "$ROOTDEV" "$MNT" || die "cannot mount $ROOTDEV on $MNT"
 
-echo "распаковка rootfs..."
+echo "unpacking rootfs..."
 zstd -dc "$ROOTFS" | tar -x --numeric-owner -C "$MNT" \
-    || die "распаковка не удалась (не хватило места? см. df -h $MNT)"
+    || die "unpacking failed (out of space? see df -h $MNT)"
 
 mkdir -p "$MNT/boot"
-mount "$EFIPART" "$MNT/boot" || die "не удалось смонтировать $EFIPART в $MNT/boot ($(fs_of "$EFIPART"))"
+mount "$EFIPART" "$MNT/boot" || die "cannot mount $EFIPART on $MNT/boot ($(fs_of "$EFIPART"))"
 
-# rootfs.tar.zst без виртуальных точек — создаём их
+BOOT_MB="$(df -m "$MNT/boot" | awk 'NR==2 {print $4}')"
+if [ "${BOOT_MB:-0}" -lt 200 ]; then
+    warn "only ${BOOT_MB} MiB free on the ESP; kernel + initramfs may not fit (1 GiB ESP recommended)"
+fi
+
+# rootfs.tar.zst has no virtual mountpoints - create them
 mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run" "$MNT/tmp" "$MNT/var/tmp"
 
-# --- 7. виртуальные ФС ---
+# --- 6. bind virtual filesystems, copy resolv.conf ---
 mount --bind /dev  "$MNT/dev"
 mount --bind /proc "$MNT/proc"
 mount --bind /sys  "$MNT/sys"
 cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 
 ROOT_UUID="$(blkid -s UUID -o value "$ROOTDEV")"
-[ -n "$ROOT_UUID" ] || die "не удалось получить UUID $ROOTDEV"
+[ -n "$ROOT_UUID" ] || die "cannot read the UUID of $ROOTDEV"
+EFI_UUID="$(blkid -s UUID -o value "$EFIPART")"
+[ -n "$EFI_UUID" ] || die "cannot read the UUID of $EFIPART"
 
-# --- 8. fstab (root + /boot) ---
+# --- 7. fstab (root + /boot) ---
 cat > "$MNT/etc/fstab" <<EOF
 UUID=$ROOT_UUID	/	$FS	defaults	0 1
 UUID=$EFI_UUID	/boot	vfat	defaults	0 2
 EOF
 
-# --- 9. chroot-настройка ---
-chroot "$MNT" /bin/sh -eu - "$ROOT_UUID" "$LUKS_UUID" <<'EOF'
-ROOT_UUID="$1"; LUKS_UUID="$2"
+# --- 8. chroot setup ---
+# The setup script is written to a file and executed, NOT fed through stdin:
+# a script read from stdin shares it with `read`, so the prompts would consume
+# the script's own lines instead of the user's answers. Values are passed via
+# the environment ("chroot ... /bin/sh -eu - a b" also fails on dash: it treats
+# "-" as end of options and the next word as the script name).
+SETUP="$MNT/.meow-chroot-setup.sh"
+cat > "$SETUP" <<'CHROOT_EOF'
+ROOT_UUID="${MEOW_ROOT_UUID:?}"
+LUKS_UUID="${MEOW_LUKS_UUID:-}"
 
 meow sync
 meow install -y linux dracut systemd-boot
 
-# версия установленного ядра -> имена файлов для systemd-boot
+# installed kernel version -> file names for the systemd-boot entry
 KVER="$(ls /usr/lib/modules | sort -V | tail -1)"
-[ -n "$KVER" ] || { echo "meow-install: ядро не установилось" >&2; exit 1; }
-[ -f "/boot/vmlinuz-$KVER" ] || { echo "meow-install: нет /boot/vmlinuz-$KVER" >&2; exit 1; }
+[ -n "$KVER" ] || { echo "meow-install: no kernel installed" >&2; exit 1; }
+[ -f "/boot/vmlinuz-$KVER" ] || { echo "meow-install: /boot/vmlinuz-$KVER is missing" >&2; exit 1; }
 
 printf "Hostname: "; read -r HN; echo "$HN" > /etc/hostname
 
 passwd root
 
-printf "Пользователь: "; read -r USER
+printf "User name: "; read -r USER
 useradd -m -G wheel "$USER"
 passwd "$USER"
 
-printf "escalation [doas/sudo] (doas): "; read -r ESC; ESC="${ESC:-doas}"
+printf "Privilege escalation [doas/sudo] (doas): "; read -r ESC; ESC="${ESC:-doas}"
 if [ "$ESC" = "sudo" ]; then
     meow install -y sudo
     echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
 else
-    # в Void пакет называется opendoas, бинарь — /usr/bin/doas
+    # in Void the package is named opendoas, the binary is /usr/bin/doas
     meow list | grep -q '^opendoas ' || meow install -y opendoas
-    [ -x /usr/bin/doas ] || { echo "meow-install: doas не установился" >&2; exit 1; }
+    [ -x /usr/bin/doas ] || { echo "meow-install: doas was not installed" >&2; exit 1; }
     if meow list | grep -q '^sudo '; then meow remove -y sudo; fi
     echo 'permit persist :wheel' > /etc/doas.conf
     chmod 600 /etc/doas.conf
     ln -sf /usr/bin/doas /usr/bin/sudo
 fi
 
+# hostonly initramfs: small enough for a 200 MiB ESP, unlike dracut -N
 if [ -n "$LUKS_UUID" ]; then
-    dracut -N --force --add crypt /boot/initramfs.img "$KVER"
+    dracut --force --add crypt /boot/initramfs.img "$KVER"
 else
-    dracut -N --force /boot/initramfs.img "$KVER"
+    dracut --force /boot/initramfs.img "$KVER"
 fi
+[ -f /boot/initramfs.img ] || { echo "meow-install: dracut produced no initramfs" >&2; exit 1; }
 
 bootctl install
 printf 'default meow\ntimeout 3\n' > /boot/loader/loader.conf
@@ -183,8 +212,17 @@ else
 fi
 printf 'title Meow Linux\nlinux /vmlinuz-%s\ninitrd /initramfs.img\noptions %s\n' \
     "$KVER" "$OPTIONS" > /boot/loader/entries/meow.conf
-EOF
+
+echo "installed kernel: $KVER"
+echo "packages installed: $(meow list | wc -l)"
+CHROOT_EOF
+
+MEOW_ROOT_UUID="$ROOT_UUID" MEOW_LUKS_UUID="$LUKS_UUID" \
+    chroot "$MNT" /bin/sh -eu /.meow-chroot-setup.sh \
+    || die "chroot setup failed"
+rm -f "$SETUP"
 
 cleanup
 trap - EXIT INT TERM
-echo "Готово. Перезагрузи и вынь носитель."
+echo
+echo "Done. Reboot and remove the installation medium."

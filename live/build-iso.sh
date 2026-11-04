@@ -48,7 +48,9 @@ done
 
 # --- 2. initramfs через dracut (dmsquash-live монтирует squashfs по label) ---
 echo "== 2/5 initramfs (dracut dmsquash-live) =="
-KVER="$(ls "$WORK/usr/lib/modules" | head -1)"
+KVER="$(ls "$WORK/usr/lib/modules" 2>/dev/null | head -1)"
+[ -n "$KVER" ] || { echo "build-iso: в live rootfs нет /usr/lib/modules — ядро не установилось" >&2; exit 1; }
+echo "   ядро: $KVER"
 chroot "$WORK" /usr/bin/dracut -N --force --add "dmsquash-live" --omit systemd "/boot/initrd" "$KVER"
 
 umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
