@@ -28,6 +28,7 @@ chroot "$WORK" /bin/sh -eu <<'EOF'
 meow sync
 meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup systemd-boot dracut device-mapper
 echo 'LANG=C' > /etc/locale.conf
+echo 'root:meow' | chpasswd -c SHA512
 EOF
 
 # --- 2. initramfs через dracut (dmsquash-live монтирует squashfs по label) ---
