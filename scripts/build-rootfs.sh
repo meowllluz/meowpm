@@ -6,12 +6,15 @@
 #      + стек: seatd, iwd, dbus, wpa_supplicant.
 #   3. Собирает meow и xbps2meow, кладёт в /usr/bin.
 #   4. Переносит xbps-БД в meow (xbps2meow).
-#   5. Удаляет xbps и libxbps через meow (временный конфиг без IGNORE).
-#   6. Накладывает OVERLAYS поверх rootfs.
+#   5. Удаляет xbps, ставит opendoas вместо sudo, синхронизирует индекс.
+#   6. Накладывает OVERLAYS поверх rootfs (каждый файл на своё место).
 #   7. Чистит кеши.
+#   8. Пакует rootfs.tar.zst от root (--owner=0) и проверяет архив.
 #
-# Требует root (chroot). Запуск:  sudo ./scripts/build-rootfs.sh
+# Требует root (chroot). Запуск:
+#   sudo ./scripts/build-rootfs.sh 2>&1 | tee build-rootfs.log
 # Пути можно переопределить: ROOT=... X2M_DIR=... OVERLAYS_DIR=...
+# RESUME=1 — не пересобирать с нуля, продолжить с шага 5 на существующем $ROOT.
 set -eu
 # какая строка упала — сразу видно (bash)
 trap 'echo "build-rootfs: ОШИБКА на строке $LINENO" >&2' ERR
@@ -22,47 +25,66 @@ OVERLAYS_DIR="${OVERLAYS_DIR:-/home/llluz/OVERLAYS}"
 ROOT="${ROOT:-$MEOW_DIR/.build-rootfs}"
 REPO="https://repo-default.voidlinux.org/current"
 LIVE="https://repo-default.voidlinux.org/live/current"
+RESUME="${RESUME:-0}"
 
 # Только root: иначе tar при распаковке Void rootfs сохранит владельца llluz
 # и срежет setuid-биты, а tar при упаковке запишет uid 1000 вместо 0.
 [ "$(id -u)" = 0 ] || { echo "build-rootfs: запускай через sudo" >&2; exit 1; }
 
-echo "== 1/8 скачивание Void rootfs =="
-rm -rf "$ROOT"
-mkdir -p "$ROOT"
-ROOTFS_URL="$(curl -fsSL "$LIVE/" | grep -oE 'void-x86_64-ROOTFS-[0-9]+\.tar\.xz' | sort -V | tail -1)"
-echo "    $ROOTFS_URL"
-curl -fsSL "$LIVE/$ROOTFS_URL" | tar -xJ -C "$ROOT"
-cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
+mount_virtual() {
+    mkdir -p "$ROOT/dev" "$ROOT/proc" "$ROOT/sys"
+    mount --bind /dev  "$ROOT/dev"  || true
+    mount --bind /proc "$ROOT/proc" || true
+    mount --bind /sys  "$ROOT/sys"  || true
+    trap 'umount "$ROOT/dev" 2>/dev/null; umount "$ROOT/proc" 2>/dev/null; umount "$ROOT/sys" 2>/dev/null' EXIT
+}
 
-echo "== 2/8 mount + bootstrap пакетов =="
-mount --bind /dev "$ROOT/dev" || true
-mount --bind /proc "$ROOT/proc" || true
-mount --bind /sys "$ROOT/sys" || true
-trap 'umount "$ROOT/dev" 2>/dev/null; umount "$ROOT/proc" 2>/dev/null; umount "$ROOT/sys" 2>/dev/null' EXIT
-chroot "$ROOT" xbps-install -Syu xbps || true
-chroot "$ROOT" xbps-install -Sy curl tar zstd shadow runit
-chroot "$ROOT" xbps-install -Sy seatd iwd dbus wpa_supplicant
+if [ "$RESUME" = 1 ]; then
+    [ -x "$ROOT/usr/bin/meow" ] || {
+        echo "build-rootfs: RESUME=1, но в $ROOT нет собранного meow — запусти без RESUME" >&2
+        exit 1
+    }
+    echo "== 1-4/8 пропущены (RESUME=1): используем готовый $ROOT =="
+    mount_virtual
+    cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
+else
+    echo "== 1/8 скачивание Void rootfs =="
+    rm -rf "$ROOT"
+    mkdir -p "$ROOT"
+    ROOTFS_URL="$(curl -fsSL "$LIVE/" | grep -oE 'void-x86_64-ROOTFS-[0-9]+\.tar\.xz' | sort -V | tail -1)"
+    [ -n "$ROOTFS_URL" ] || { echo "build-rootfs: не нашёл Void rootfs в $LIVE/" >&2; exit 1; }
+    echo "    $ROOTFS_URL"
+    curl -fsSL "$LIVE/$ROOTFS_URL" | tar -xJ -C "$ROOT"
+    cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
 
-echo "== 3/8 сборка meow + xbps2meow =="
-(cd "$MEOW_DIR" && go build -o "$ROOT/usr/bin/meow" .)
-(cd "$X2M_DIR" && go build -o "$ROOT/usr/bin/xbps2meow" .)
+    echo "== 2/8 mount + bootstrap пакетов =="
+    mount_virtual
+    chroot "$ROOT" xbps-install -Syu xbps || true
+    chroot "$ROOT" xbps-install -Sy curl tar zstd shadow runit
+    chroot "$ROOT" xbps-install -Sy seatd iwd dbus wpa_supplicant
 
-echo "== 4/8 перенос xbps -> meow =="
-chroot "$ROOT" /usr/bin/xbps2meow
+    echo "== 3/8 сборка meow + xbps2meow =="
+    (cd "$MEOW_DIR" && go build -o "$ROOT/usr/bin/meow" .)
+    (cd "$X2M_DIR" && go build -o "$ROOT/usr/bin/xbps2meow" .)
 
-echo "== 5/8 удаление xbps через meow =="
+    echo "== 4/8 перенос xbps -> meow =="
+    chroot "$ROOT" /usr/bin/xbps2meow
+fi
+
+echo "== 5/8 удаление xbps + index + doas =="
 mkdir -p "$ROOT/etc/meow"
 printf 'REPO_MAIN=%s\nARCH=x86_64\nESCALATOR=doas\n' "$REPO" > "$ROOT/etc/meow/pm.conf"
-chroot "$ROOT" /usr/bin/meow remove -R -y xbps
+chroot "$ROOT" /usr/bin/meow remove -R -y xbps || echo "   xbps уже удалён"
 
-# без индекса репозитория install не находит пакеты ("dependency 'doas' not found")
+# без индекса репозитория install не находит пакеты ("dependency '...' not found")
 echo "   индекс репозитория (meow sync)"
 chroot "$ROOT" /usr/bin/meow sync
 
-# doas вместо sudo: в базовом Void стоит sudo, doas ставим сами,
-# sudo остаётся только симлинком на doas (совместимость со скриптами).
-chroot "$ROOT" /usr/bin/meow install -y doas
+# doas вместо sudo: в Void пакет называется opendoas (бинарь — /usr/bin/doas),
+# в базовом rootfs стоит sudo, поэтому его убираем, а sudo оставляем симлинком.
+grep -q '"pkgname":"opendoas"' "$ROOT/var/cache/meow/repo_main.json" \
+    || { echo "build-rootfs: в индексе нет пакета opendoas" >&2; exit 1; }
+chroot "$ROOT" /usr/bin/meow install -y opendoas
 if chroot "$ROOT" /usr/bin/meow list | grep -q '^sudo '; then
     chroot "$ROOT" /usr/bin/meow remove -y sudo \
         || echo "   внимание: sudo не удалился, заменяю симлинком"
@@ -70,7 +92,9 @@ fi
 ln -sf /usr/bin/doas "$ROOT/usr/bin/sudo"
 printf 'permit persist :wheel\n' > "$ROOT/etc/doas.conf"
 chmod 600 "$ROOT/etc/doas.conf"
-[ -x "$ROOT/usr/bin/doas" ] || { echo "build-rootfs: doas не установился" >&2; exit 1; }
+[ -x "$ROOT/usr/bin/doas" ] || { echo "build-rootfs: doas не установился (пакет opendoas)" >&2; exit 1; }
+DOAS_MODE="$(stat -c %a "$ROOT/usr/bin/doas")"
+[ "$DOAS_MODE" = 4755 ] || echo "   внимание: /usr/bin/doas mode=$DOAS_MODE, ожидался 4755"
 
 echo "== 6/8 наложение overlay =="
 # Кладём каждый файл на СВОЁ место: `cp -a OVERLAYS/. ROOT/` разложил бы

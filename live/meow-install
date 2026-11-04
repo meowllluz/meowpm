@@ -159,8 +159,9 @@ if [ "$ESC" = "sudo" ]; then
     meow install -y sudo
     echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
 else
-    # doas может быть ещё не установлен (rootfs делают с sudo или без ничего)
-    meow list | grep -q '^doas ' || meow install -y doas
+    # в Void пакет называется opendoas, бинарь — /usr/bin/doas
+    meow list | grep -q '^opendoas ' || meow install -y opendoas
+    [ -x /usr/bin/doas ] || { echo "meow-install: doas не установился" >&2; exit 1; }
     if meow list | grep -q '^sudo '; then meow remove -y sudo; fi
     echo 'permit persist :wheel' > /etc/doas.conf
     chmod 600 /etc/doas.conf

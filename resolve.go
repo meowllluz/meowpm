@@ -226,7 +226,7 @@ func resolveOrder(rc *RepoCache, cfg *Config, targets []string) ([]*RepoPkg, err
 		}
 		real, err := rc.resolveReal(t)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot resolve %q: %w (check the exact package name; if the index is empty or stale, run 'meow sync')", t, err)
 		}
 		if err := visit(real); err != nil {
 			return nil, err

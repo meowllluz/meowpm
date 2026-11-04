@@ -28,6 +28,7 @@ zstd -dc "$ROOTFS_TAR" | tar -x --numeric-owner -C "$WORK"
 mkdir -p "$WORK/dev" "$WORK/proc" "$WORK/sys" "$WORK/run" "$WORK/tmp" "$WORK/var/tmp"
 
 mount --bind /dev "$WORK/dev"; mount --bind /proc "$WORK/proc"; mount --bind /sys "$WORK/sys"
+trap 'umount "$WORK/dev" 2>/dev/null; umount "$WORK/proc" 2>/dev/null; umount "$WORK/sys" 2>/dev/null' EXIT
 cp /etc/resolv.conf "$WORK/etc/resolv.conf"
 
 install -m 0755 "$LIVE_DIR/meow-install" "$WORK/usr/bin/meow-install"
