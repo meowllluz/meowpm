@@ -1,7 +1,0 @@
-== 1-4/8 пропущены (RESUME=1): используем готовый /home/llluz/meowpm/.build-rootfs ==
-== 5/8 удаление xbps + index + doas ==
-meow: package xbps is not installed
-   xbps уже удалён
-   индекс репозитория (meow sync)
-meow: package opendoas is already installed
-build-rootfs: ОШИБКА на строке 87
