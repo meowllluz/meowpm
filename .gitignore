@@ -16,3 +16,6 @@ live/initramfs.img
 live/efiboot.img
 live/init.bin
 live/.iso/
+
+# временные каталоги распаковки
+.tmp_*/

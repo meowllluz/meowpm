@@ -13,6 +13,8 @@
 # Требует root (chroot). Запуск:  sudo ./scripts/build-rootfs.sh
 # Пути можно переопределить: ROOT=... X2M_DIR=... OVERLAYS_DIR=...
 set -eu
+# какая строка упала — сразу видно (bash)
+trap 'echo "build-rootfs: ОШИБКА на строке $LINENO" >&2' ERR
 
 MEOW_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 X2M_DIR="${X2M_DIR:-/home/llluz/xbps2meow}"
@@ -54,8 +56,43 @@ mkdir -p "$ROOT/etc/meow"
 printf 'REPO_MAIN=%s\nARCH=x86_64\nESCALATOR=doas\n' "$REPO" > "$ROOT/etc/meow/pm.conf"
 chroot "$ROOT" /usr/bin/meow remove -R -y xbps
 
+# doas вместо sudo: в базовом Void стоит sudo, doas ставим сами,
+# sudo остаётся только симлинком на doas (совместимость со скриптами).
+chroot "$ROOT" /usr/bin/meow install -y doas
+if chroot "$ROOT" /usr/bin/meow list | grep -q '^sudo '; then
+    chroot "$ROOT" /usr/bin/meow remove -y sudo
+fi
+ln -sf /usr/bin/doas "$ROOT/usr/bin/sudo"
+printf 'permit persist :wheel\n' > "$ROOT/etc/doas.conf"
+chmod 600 "$ROOT/etc/doas.conf"
+[ -x "$ROOT/usr/bin/doas" ] || { echo "build-rootfs: doas не установился" >&2; exit 1; }
+
 echo "== 6/8 наложение overlay =="
-cp -a "$OVERLAYS_DIR"/. "$ROOT"/
+# Кладём каждый файл на СВОЁ место: `cp -a OVERLAYS/. ROOT/` разложил бы
+# os-release, meow/, fastfetch/, issue, hostname, host.conf прямо в корень /.
+OV="$OVERLAYS_DIR"
+[ -d "$OV" ] || { echo "build-rootfs: нет каталога оверлеев $OV" >&2; exit 1; }
+[ -f "$OV/os-release" ] || { echo "build-rootfs: нет $OV/os-release" >&2; exit 1; }
+
+# /etc/os-release в Void — симлинк на ../usr/lib/os-release, пишем в настоящий файл
+install -Dm644 "$OV/os-release" "$ROOT/usr/lib/os-release"
+for f in issue hostname host.conf; do
+    [ -f "$OV/$f" ] && install -Dm644 "$OV/$f" "$ROOT/etc/$f"
+done
+install -Dm644 "$OV/meow/pm.conf"    "$ROOT/etc/meow/pm.conf"
+install -Dm644 "$OV/meow/ascii_logo" "$ROOT/etc/meow/ascii_logo"
+[ -f "$OV/fastfetch/config.jsonc" ] && install -Dm644 "$OV/fastfetch/config.jsonc" "$ROOT/etc/fastfetch/config.jsonc"
+[ -f "$OV/wifi-connect" ] && install -Dm755 "$OV/wifi-connect" "$ROOT/usr/local/bin/wifi-connect"
+# если остались плоские копии от старых сборок — убираем, чтобы не мусорили в /
+rm -rf "$ROOT/os-release" "$ROOT/meow" "$ROOT/fastfetch" "$ROOT/issue" \
+       "$ROOT/hostname" "$ROOT/host.conf" "$ROOT/wifi-connect" 2>/dev/null || true
+
+BRAND="$(grep -s '^PRETTY_NAME' "$ROOT/etc/os-release" | head -1)"
+case "$BRAND" in
+    *Meow*) echo "   брендинг: $BRAND" ;;
+    *) echo "build-rootfs: брендинг не применился, /etc/os-release = $BRAND" >&2; exit 1 ;;
+esac
+[ -x "$ROOT/usr/local/bin/wifi-connect" ] || echo "   внимание: wifi-connect не установлен"
 
 echo "== 7/8 очистка =="
 rm -rf "$ROOT/var/cache/xbps" 2>/dev/null || true
@@ -67,7 +104,7 @@ echo "== 8/8 упаковка rootfs.tar.zst =="
 tar -c --numeric-owner --owner=0 --group=0 -C "$ROOT" \
     --exclude=./dev --exclude=./proc --exclude=./sys --exclude=./run \
     --exclude=./var/cache --exclude=./tmp --exclude=./var/tmp \
-    --exclude=./root/.bash_history . | zstd -T0 -q -o "$MEOW_DIR/rootfs.tar.zst"
+    --exclude=./root/.bash_history . | zstd -T0 -q -f -o "$MEOW_DIR/rootfs.tar.zst"
 
 echo "   проверка архива:"
 ARCHIVE="$MEOW_DIR/rootfs.tar.zst"
