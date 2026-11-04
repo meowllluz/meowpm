@@ -17,6 +17,7 @@ size_of() { lsblk -dno SIZE "$1" 2>/dev/null | tr -d ' '; }
 cleanup() {
     umount -R "$MNT" 2>/dev/null || true
     if [ -n "${LUKS_PART:-}" ]; then cryptsetup close cryptroot 2>/dev/null || true; fi
+    if [ "${EFIVARS:-0}" = 1 ]; then umount /sys/firmware/efi/efivars 2>/dev/null || true; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -138,6 +139,18 @@ fi
 mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run" "$MNT/tmp" "$MNT/var/tmp"
 
 # --- 6. bind virtual filesystems, copy resolv.conf ---
+# systemd-boot registers itself in the firmware boot order through efivarfs; the
+# live system does not mount it, so mount it here (it becomes visible in the
+# chroot through the /sys bind mount). Not fatal: the fallback loader still works.
+EFIVARS=0
+if [ -d /sys/firmware/efi ] && ! grep -q 'efivarfs' /proc/mounts; then
+    if mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null; then
+        EFIVARS=1
+    else
+        warn "cannot mount efivarfs: bootctl will skip the NVRAM entry"
+    fi
+fi
+
 mount --bind /dev  "$MNT/dev"
 mount --bind /proc "$MNT/proc"
 mount --bind /sys  "$MNT/sys"
@@ -203,7 +216,19 @@ else
 fi
 [ -f /boot/initramfs.img ] || { echo "meow-install: dracut produced no initramfs" >&2; exit 1; }
 
-bootctl install
+# systemd-boot: on firmware/VMs where EFI variables are not writable bootctl
+# still copies its files but exits non-zero ("Failed to write
+# 'LoaderSystemToken' EFI variable"); do not abort the install on that, and make
+# sure the removable-media fallback loader is in place.
+if ! bootctl install; then
+    echo "meow-install: bootctl install reported an error (continuing)" >&2
+fi
+if [ ! -f /boot/EFI/BOOT/BOOTX64.EFI ]; then
+    mkdir -p /boot/EFI/BOOT
+    cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/BOOT/BOOTX64.EFI \
+        || { echo "meow-install: cannot install the EFI fallback loader" >&2; exit 1; }
+fi
+mkdir -p /boot/loader/entries
 printf 'default meow\ntimeout 3\n' > /boot/loader/loader.conf
 if [ -n "$LUKS_UUID" ]; then
     OPTIONS="rd.luks.name=$LUKS_UUID=cryptroot root=/dev/mapper/cryptroot rw"

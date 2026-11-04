@@ -19,3 +19,7 @@ live/.iso/
 
 # временные каталоги распаковки
 .tmp_*/
+
+# логи сборки
+build-rootfs.log
+build-iso.log
