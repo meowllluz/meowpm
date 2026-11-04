@@ -63,7 +63,8 @@ printf 'default meow\ntimeout 3\n' > "$LCONF"
 printf 'title Meow Linux (live)\nlinux /vmlinuz\ninitrd /initrd\noptions root=live:LABEL=MEOW_LIVE rw LANG=C\n' > "$ECONF"
 
 EFI="$LIVE_DIR/efiboot.img"; rm -f "$EFI"
-dd if=/dev/zero of="$EFI" bs=1M count=64 status=none
+EFI_MB=$(( ( $(stat -c %s "$INITRD") + $(stat -c %s "$KERNEL") ) / 1048576 + 32 ))
+dd if=/dev/zero of="$EFI" bs=1M count="$EFI_MB" status=none
 mkfs.vfat -n MEOW_EFI "$EFI" >/dev/null
 mmd -i "$EFI" ::EFI ::EFI/BOOT ::loader ::loader/entries
 mcopy -i "$EFI" "$SDBOOT" ::EFI/BOOT/BOOTX64.EFI
