@@ -5,6 +5,8 @@
 репозиториями Void, но вместо xbps занимается установкой, удалением и обновлением
 пакетов сам.
 
+English: [README.md](README.md)
+
 ```
 $ meow sync
 $ sudo meow install neovim
