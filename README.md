@@ -65,11 +65,24 @@ index; the cache (`/var/cache/meow`) is reused only when the hash matches.
 comparison plus a separate revision after `_` (`1.2.3_4` > `1.2.3_1`), with
 `alpha < beta < pre < rc < pl`.
 
+**No automatic hooks.** meow runs no triggers and no post-install hooks. Whether a
+system cache needs refreshing, the initramfs rebuilt or a service restarted is the
+admin's call:
+
+- after an install or upgrade meow prints hints to stderr — `dracut --force`
+  (kernel), `ldconfig` (shared libraries), `fc-cache -fv` (fonts),
+  `update-ca-certificates`, `udevadm control --reload-rules`,
+  `update-desktop-database`, `glib-compile-schemas`, … — and that is all it does
+  about them;
+- package INSTALL/REMOVE scripts do run, but only with the phases XBPS defines
+  (`pre`/`post`, `pre-remove`/`post-remove`), no extra ones;
+- config merges are always a separate command (`meow etc-update`), never a side
+  effect of an upgrade;
+- services are enabled explicitly (`meow enable <svc>`); nothing is started or
+  restarted behind your back.
+
 **Output discipline.** Data (`list`, `search`, `info`, `log`) goes to stdout and
-pipes cleanly; progress, warnings and hints go to stderr. After an install meow
-reminds you about `dracut --force` (kernel), `ldconfig` (libraries),
-`fc-cache -fv` (fonts), `update-ca-certificates`, `udevadm control --reload-rules`
-and the rest.
+pipes cleanly; progress, warnings and hints go to stderr.
 
 ## Building
 
@@ -170,13 +183,25 @@ version hold/pinning, no installing of local `.xbps` files, no repository
 signature verification (only the package sha256), no hooks, and no separate
 `meow autoremove` command (the cascade lives in `remove -R`).
 
-## Project
+## About the project
+
+A personal project: written by one person, with an AI agent producing most of the
+Go code from a text description of the intended behaviour. It exists first of all
+for its author's own needs and is published as is — for anyone who finds it useful,
+and in case it gets finished some day. Issues are welcome.
+
+Everything published here is marked `*by AI agent`.
+
+## Links
 
 - The `.xbps` and `index.plist` formats are documented in `void-packages`
   `Manual.md` and the [void-linux/xbps](https://github.com/void-linux/xbps)
   sources (`lib/package_unpack.c`).
-- The distribution it is written for: Meow Linux (Void + runit, systemd-boot, TTY).
+- The distribution it is written for: Meow Linux (Void + runit, systemd-boot, no
+  desktop environment out of the box).
 - System build scripts: `scripts/build-rootfs.sh`, `live/build-iso.sh`,
   `live/meow-install`.
 
 License: GNU GPL v2 — see [LICENSE](LICENSE).
+
+*by AI agent
