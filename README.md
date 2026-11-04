@@ -1,9 +1,9 @@
 # meow
 
-Пакетный менеджер для **Meow Linux** — небольшого дистрибутива на базе Void Linux.
-Написан на Go, работает с настоящими бинарными пакетами XBPS (`.xbps`) и официальными
-репозиториями Void, но вместо xbps занимается установкой, удалением и обновлением
-пакетов сам.
+A package manager for **Meow Linux**, a small Void-based distribution.
+Written in Go. It works with real XBPS binary packages (`.xbps`) and the official
+Void repositories, but installs, removes and upgrades packages itself instead of
+calling xbps.
 
 ```
 $ meow sync
@@ -15,60 +15,65 @@ the following packages will be installed:
 total: 3. proceed? [Y/n]
 ```
 
-## Что умеет
+Русская версия: [README-ru.md](README-ru.md)
 
-| Команда | Что делает |
+## Commands
+
+| Command | What it does |
 |---|---|
-| `meow sync` | Скачивает `<arch>-repodata` из репозиториев, разбирает `index.plist`, обновляет кеш |
-| `meow install <pkg>...` | Ставит пакет со всеми зависимостями (`-y` — без вопросов, `-n` — dry-run) |
-| `meow remove <pkg>...` | Удаляет пакет (`-R` — каскадно с осиротевшими автозависимостями, `-n`, `-y`) |
-| `meow upgrade` | Обновляет всё установленное до версий из индекса (`-n`) |
-| `meow repair` | Доводит до конца прерванную транзакцию по журналу |
-| `meow list` | Список установленных пакетов |
-| `meow search <query>` | Поиск по имени и описанию в кеше индекса |
-| `meow info <pkg>` | Имя, версия, архитектура, описание из индекса |
-| `meow enable / disable <svc>` | Включение и выключение runit-сервиса (`/etc/sv` ↔ `/var/service`) |
-| `meow etc-update` | Слияние конфигов, обновлённых пакетами (`*.meow-new`) |
-| `meow clean` | Чистка кеша пакетов и логов старше 30 дней |
-| `meow log [txid]` | Список транзакций или содержимое лога конкретной |
+| `meow sync` | Downloads `<arch>-repodata` from the configured repositories, parses `index.plist`, refreshes the cache |
+| `meow install <pkg>...` | Installs a package with all dependencies (`-y` — no prompt, `-n` — dry run) |
+| `meow remove <pkg>...` | Removes a package (`-R` — cascade, also drops orphaned auto-dependencies; `-n`, `-y`) |
+| `meow upgrade` | Upgrades everything installed to the versions from the index (`-n`) |
+| `meow repair` | Finishes an interrupted transaction using the on-disk journal |
+| `meow list` | Lists installed packages |
+| `meow search <query>` | Searches names and descriptions in the cached index |
+| `meow info <pkg>` | Name, version, architecture and description from the index |
+| `meow enable` / `meow disable <svc>` | Enables or disables a runit service (`/etc/sv` ↔ `/var/service`) |
+| `meow etc-update` | Merges configuration files updated by packages (`*.meow-new`) |
+| `meow clean` | Clears the package cache and logs older than 30 days |
+| `meow log [txid]` | Lists transactions, or prints the log of one |
 
-Отдельно:
+Additionally, `meow --root <path> <cmd>` works on an alternative root (a prepared
+OS directory), which is handy for testing without a chroot.
 
-- `meow --root <path> <cmd>` — работа с альтернативным корнем (готовая директория ОС),
-  удобно для тестов без chroot.
+## How it works
 
-## Как это работает
+**Dependencies.** Resolution walks `run_depends` from the index: package names,
+`provides` (including virtual ones such as `cmd:awk`) and version constraints
+(`awk>=0`, `foo-1.2_1`). The walk is a three-colour iterative DFS, so the install
+order is topological and cycles are reported as `circular dependency: a -> b`.
+When several packages satisfy a dependency and there is no explicit choice,
+installation stops and lists the candidates instead of guessing.
 
-**Зависимости.** Разрешение идёт по `run_depends` из индекса: имена пакетов, `provides`
-(в том числе виртуальные вроде `cmd:awk`) и версии (`awk>=0`, `foo-1.2_1`).
-Обход — трёхцветный DFS: порядок установки топологический, циклы ловятся и печатаются
-как `circular dependency: a -> b`. Если зависимость удовлетворяют несколько пакетов
-и явного выбора нет — установка останавливается со списком кандидатов, а не угадывает.
+**Journal and `repair`.** Before every transaction the queue of packages, with its
+phases, is written to `/var/db/meow/journal.json`. Ctrl+C does not kill an
+operation mid-package: the current package is finished and the journal is
+preserved. The next `meow repair` removes partially unpacked files, replays
+post-install scripts and installs whatever is left.
 
-**Журнал и `repair`.** Перед каждой транзакцией в `/var/db/meow/journal.json` пишется
-очередь пакетов с фазами. Ctrl+C не убивает операцию на полуслове: текущий пакет
-доводится до конца, журнал сохраняется. `meow repair` при следующем запуске дочистит
-частично распакованные файлы, доиграет post-install скрипты и доставит оставшееся.
+**Configs in `/etc`.** When a package ships a new version of a config the user has
+edited, the old file is left untouched and the new one is unpacked next to it with
+a `.meow-new` suffix; `meow etc-update` then offers
+`[r]eplace [k]eep [d]elete`. On package removal an edited config is kept as
+`<file>.meow-save`.
 
-**Конфиги в `/etc`.** Если пакет приносит новый вариант изменённого пользователем
-конфига, старый не затирается: файл остаётся как есть, а новый кладётся рядом с
-суффиксом `.meow-new`, затем `meow etc-update` спрашивает `[r]eplace [k]eep [d]elete`.
-При удалении пакета изменённый конфиг сохраняется как `<файл>.meow-save`.
+**Integrity.** Downloaded packages are verified against `filename-sha256` from the
+index; the cache (`/var/cache/meow`) is reused only when the hash matches.
 
-**Проверка целостности.** Пакет сверяется с `filename-sha256` из индекса, кеш
-(`/var/cache/meow`) переиспользуется только при совпадении хеша.
+**Versions.** `CompareVersions` is a port of `xbps_cmpver`: dewey-style segment
+comparison plus a separate revision after `_` (`1.2.3_4` > `1.2.3_1`), with
+`alpha < beta < pre < rc < pl`.
 
-**Версии.** `CompareVersions` — порт `xbps_cmpver`: dewey-сравнение сегментов плюс
-отдельная ревизия после `_` (`1.2.3_4` > `1.2.3_1`), с `alpha < beta < pre < rc < pl`.
+**Output discipline.** Data (`list`, `search`, `info`, `log`) goes to stdout and
+pipes cleanly; progress, warnings and hints go to stderr. After an install meow
+reminds you about `dracut --force` (kernel), `ldconfig` (libraries),
+`fc-cache -fv` (fonts), `update-ca-certificates`, `udevadm control --reload-rules`
+and the rest.
 
-**Диагностика.** Данные (`list`, `search`, `info`, `log`) идут в stdout и нормально
-пайпятся; прогресс, предупреждения и подсказки — в stderr. После установки meow сам
-напоминает про `dracut --force` (ядро), `ldconfig` (библиотеки), `fc-cache -fv`
-(шрифты), `update-ca-certificates`, `udevadm control --reload-rules` и остальное.
+## Building
 
-## Сборка
-
-Нужен Go 1.27+ и `git`. Единственная зависимость — `howett.net/plist`.
+Requires Go 1.27+ and `git`. The only dependency is `howett.net/plist`.
 
 ```sh
 git clone https://github.com/meowllluz/meowpm.git
@@ -78,95 +83,100 @@ go test ./...
 sudo install -Dm755 meow /usr/bin/meow
 ```
 
-Во время работы нужны `curl`, `tar`, `zstd` (Void'овский tar вытаскивает `index.plist`
-из `.tar.zst` через внешний zstd), `shadow` и опционально `runit` (для `enable`/`disable`).
+At runtime meow needs `curl`, `tar`, `zstd` (Void's tar extracts `index.plist`
+from a `.tar.zst` through the external zstd binary), `shadow`, and optionally
+`runit` for `enable`/`disable`.
 
-## Настройка
+## Configuration
 
 `/etc/meow/pm.conf`:
 
 ```ini
-# обязательный: основной репозиторий
+# required: main repository
 REPO_MAIN=https://repo-default.voidlinux.org/current
-# необязательный: nonfree
+# optional: nonfree
 REPO_NONFREE=https://repo-default.voidlinux.org/current/nonfree
 
-# архитектура, по умолчанию x86_64
+# architecture, x86_64 by default
 ARCH=x86_64
 
-# чем повышать права в подсказках (doas/sudo), по умолчанию doas
+# what to use for the hints' privilege escalation (doas/sudo), doas by default
 ESCALATOR=doas
 
-# пакеты, которые meow не должен трогать (через запятую).
-# base-files в Meow Linux держит брендинг дистрибутива.
+# packages meow must never touch (comma separated).
+# On Meow Linux base-files carries the distribution branding.
 IGNORE_PACKAGES=base-files
 ```
 
-Первый запуск:
+First run:
 
 ```sh
 sudo meow sync
 meow search nvim
 sudo meow install neovim
-sudo meow upgrade -n     # посмотреть, что обновится
+sudo meow upgrade -n     # see what would be upgraded
 ```
 
-`IGNORE_PACKAGES` — жёсткий запрет: и установка, и обновление, и разрешение
-зависимостей упадут, если пакет оттуда нужен явно или как зависимость.
+`IGNORE_PACKAGES` is a hard block: installation, upgrade and dependency
+resolution all fail if such a package is requested directly or needed as a
+dependency.
 
-## Структура данных
+## Data layout
 
 ```
 /var/db/meow/
-  installed.list        имя|версия|дата|auto  (по строке на пакет)
-  <pkg>.json            файлы с sha256, зависимости, provides, conflicts, статус
-  <pkg>.install         INSTALL-скрипт пакета, если был
-  <pkg>.remove          REMOVE-скрипт пакета, если был
-  journal.json          незавершённая транзакция (есть только во время операции)
-  log/                  логи sync/install/upgrade/repair
+  installed.list        name|version|date|auto  (one line per package)
+  <pkg>.json            files with sha256, dependencies, provides, conflicts, status
+  <pkg>.install         the package INSTALL script, if any
+  <pkg>.remove          the package REMOVE script, if any
+  journal.json          unfinished transaction (exists only during an operation)
+  log/                  sync/install/upgrade/repair logs
 /var/cache/meow/
-  repo_<repo>.json      кеш индекса
-  repo_<repo>.plist     распакованный index.plist (для отладки)
-  search_<repo>.txt     плоский индекс для поиска
-  <pkg>-<ver>.<arch>.tar.zst  скачанные пакеты
+  repo_<repo>.json      index cache
+  repo_<repo>.plist     extracted index.plist (for debugging)
+  search_<repo>.txt     flat index used by search
+  <pkg>-<ver>.<arch>.tar.zst  downloaded packages
 ```
 
-Скрипты пакетов вызываются как `sh <script> <phase> <update>`, где фаза —
-`pre`/`post` для INSTALL и `pre-remove`/`post-remove` для REMOVE, `update` —
-`yes`/`no`. В окружении: `PKGNAME`, `VERSION`, `UPDATE`, `PKG_DESTDIR`.
+Package scripts are invoked as `sh <script> <phase> <update>`, where the phase is
+`pre`/`post` for INSTALL and `pre-remove`/`post-remove` for REMOVE, and `update`
+is `yes`/`no`. Environment: `PKGNAME`, `VERSION`, `UPDATE`, `PKG_DESTDIR`.
 
-## Тесты
+## Tests
 
 ```sh
-go test ./...                        # юнит-тесты: версии, resolve, парсинг files.plist, БД
-sudo ./scripts/test-chroot.sh        # интеграционный прогон в chroot (свежий Void rootfs)
-ROOT=/tmp/void sudo ./scripts/test-chroot.sh   # то же в свой каталог
+go test ./...                        # unit tests: versions, resolve, files.plist parsing, DB
+sudo ./scripts/test-chroot.sh        # integration run in a chroot (fresh Void rootfs)
+ROOT=/tmp/void sudo ./scripts/test-chroot.sh   # same, into a custom directory
 ```
 
-Интеграционный скрипт скачивает актуальный Void glibc rootfs, поднимает в нём
-`curl/tar/shadow/runit/zstd` через нативный xbps, собирает meow внутри и прогоняет
-`sync → install → list/info/search → remove`.
+The integration script downloads the current Void glibc rootfs, bootstraps
+`curl/tar/shadow/runit/zstd` in it with the native xbps, builds meow inside and
+runs `sync → install → list/info/search → remove`.
 
-## Установка на обычный Void
+## Installing on plain Void
 
-Meow можно попробовать и на существующем Void, не переставляя систему: мигратор
-[xbps2meow](https://github.com/meowllluz/xbps2meow) переносит базу `/var/db/xbps`
-в формат meow, после чего xbps удаляется, а meow продолжает обновлять те же пакеты
-из тех же репозиториев. Пакеты, пришедшие из xbps, попадают в базу с `Auto=false`,
-поэтому `remove -R` не считает их сиротами.
+meow can be tried on an existing Void installation without reinstalling the
+system: the migrator [xbps2meow](https://github.com/meowllluz/xbps2meow) converts
+the `/var/db/xbps` database into meow's format, after which xbps is removed and
+meow keeps upgrading the same packages from the same repositories. Packages that
+came from xbps are recorded with `Auto=false`, so `remove -R` does not treat them
+as orphans.
 
-## Чего пока нет
+## Not implemented (on purpose)
 
-Честный список, чтобы не искать зря: понижение версии (downgrade) намеренно не
-поддерживается, нет hold/pinning версий, установки локальных `.xbps`-файлов,
-проверки подписи репозитория (только sha256 пакета), хуков и `meow autoremove`
-отдельной командой (каскад живёт в `remove -R`).
+To save you the search: downgrades are intentionally unsupported; there is no
+version hold/pinning, no installing of local `.xbps` files, no repository
+signature verification (only the package sha256), no hooks, and no separate
+`meow autoremove` command (the cascade lives in `remove -R`).
 
-## Проект
+## Project
 
-- Формат `.xbps` и `index.plist` — в `void-packages` `Manual.md` и исходниках
-  [void-linux/xbps](https://github.com/void-linux/xbps) (`lib/package_unpack.c`).
-- Дистрибутив, для которого он пишется: Meow Linux (Void + runit, systemd-boot, TTY).
-- Скрипты сборки системы: `scripts/build-rootfs.sh`, `live/build-iso.sh`, `live/meow-install`.
+- The `.xbps` and `index.plist` formats are documented in `void-packages`
+  `Manual.md` and the [void-linux/xbps](https://github.com/void-linux/xbps)
+  sources (`lib/package_unpack.c`).
+- The distribution it is written for: Meow Linux (Void + runit, systemd-boot, TTY).
+- System build scripts: `scripts/build-rootfs.sh`, `live/build-iso.sh`,
+  `live/meow-install`.
 
-Лицензия: MIT.
+License: GNU GPL v2 — see [LICENSE](LICENSE).
