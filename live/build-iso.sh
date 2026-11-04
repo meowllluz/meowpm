@@ -33,7 +33,7 @@ EOF
 # --- 2. initramfs через dracut (dmsquash-live монтирует squashfs по label) ---
 echo "== 2/5 initramfs (dracut dmsquash-live) =="
 KVER="$(ls "$WORK/usr/lib/modules" | head -1)"
-chroot "$WORK" /usr/bin/dracut --force --add "dmsquash-live" "/boot/initrd" "$KVER"
+chroot "$WORK" /usr/bin/dracut -N --force --add "dmsquash-live" --omit systemd "/boot/initrd" "$KVER"
 
 umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
