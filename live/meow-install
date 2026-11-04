@@ -1,89 +1,143 @@
 #!/bin/sh
 # meow-install — инсталлятор Meow Linux (CLI).
-# Разметка вручную (cfdisk) -> LUKS (опц.) -> mkfs -> распаковка rootfs.tar.zst
-# -> chroot-настройка (ядро+dracut+systemd-boot, hostname, пароли, doas/sudo).
+# Разметка вручную (cfdisk) -> FAT32 на EFI -> LUKS (опц.) -> mkfs root
+# -> распаковка rootfs.tar.zst -> chroot-настройка (ядро+dracut+systemd-boot,
+# hostname, пароли, пользователь, doas/sudo, fstab по UUID).
 set -eu
 
 ROOTFS="${MEOW_ROOTFS:-/rootfs.tar.zst}"
 MNT="/mnt"
 
 die() { echo "meow-install: $*" >&2; exit 1; }
+warn() { echo "meow-install: $*" >&2; }
+ask() { printf "%s" "$1"; read -r "$2"; }
+
+fs_of() { blkid -s TYPE -o value "$1" 2>/dev/null || true; }
+
+cleanup() {
+    umount -R "$MNT" 2>/dev/null || true
+    [ -n "${LUKS_PART:-}" ] && cryptsetup close cryptroot 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 [ "$(id -u)" = 0 ] || die "run as root"
-command -v zstd >/dev/null || die "нет zstd"
-command -v cryptsetup >/dev/null || die "нет cryptsetup"
+for t in zstd cryptsetup mkfs.vfat mkfs.ext4 bootctl; do
+    command -v "$t" >/dev/null || die "нет $t"
+done
 [ -f "$ROOTFS" ] || die "$ROOTFS не найден"
 
 # --- 1. диск и ручная разметка ---
-lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
-printf "Диск (напр. /dev/sda): "; read -r DISK
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
+ask "Диск (напр. /dev/vda): " DISK
 [ -b "$DISK" ] || die "$DISK не блочное устройство"
 cfdisk "$DISK"
 
-# --- 2. LUKS (опционально) ---
-printf "LUKS-шифрование root? [y/N]: "; read -r LUKS
-printf "Раздел root (напр. ${DISK}2): "; read -r ROOTPART
-[ -b "$ROOTPART" ] || die "$ROOTPART нет"
+echo
+echo "Текущая разметка $DISK:"
+lsblk -f "$DISK"
+echo
+
+ask "Раздел root (напр. ${DISK}2): " ROOTPART
+[ -b "$ROOTPART" ] || die "$ROOTPART не блочное устройство"
+ask "EFI-раздел (напр. ${DISK}1, FAT32): " EFIPART
+[ -b "$EFIPART" ] || die "$EFIPART не блочное устройство"
+[ "$ROOTPART" = "$EFIPART" ] && die "root и EFI — один и тот же раздел ($ROOTPART)"
+
+# --- 2. EFI всегда FAT32: ставим её сами либо проверяем ---
+efi_type="$(fs_of "$EFIPART")"
+case "$efi_type" in
+    vfat|fat|fat32|fat16)
+        ;;
+    "")
+        warn "на $EFIPART нет файловой системы — форматирую FAT32"
+        mkfs.vfat -F32 "$EFIPART"
+        ;;
+    *)
+        die "$EFIPART содержит '$efi_type', а EFI должен быть FAT32.
+  если это правда EFI-раздел: mkfs.vfat -F32 $EFIPART
+  если ты перепутал разделы — перезапусти meow-install и введи их в другом порядке"
+        ;;
+esac
+EFI_UUID="$(blkid -s UUID -o value "$EFIPART")"
+
+# --- 3. LUKS (опционально) ---
+ask "LUKS-шифрование root? [y/N]: " LUKS
+LUKS_UUID=""
 case "$LUKS" in
-  y|Y|yes)
-    cryptsetup luksFormat "$ROOTPART"
-    cryptsetup open "$ROOTPART" cryptroot
-    ROOTDEV="/dev/mapper/cryptroot"
-    LUKS_UUID="$(cryptsetup luksUUID "$ROOTPART")"
-    ;;
-  *) ROOTDEV="$ROOTPART" ;;
+    y|Y|yes)
+        [ "$(fs_of "$ROOTPART")" = "crypto_LUKS" ] || cryptsetup luksFormat "$ROOTPART"
+        cryptsetup open "$ROOTPART" cryptroot
+        LUKS_PART="$ROOTPART"
+        ROOTDEV="/dev/mapper/cryptroot"
+        LUKS_UUID="$(cryptsetup luksUUID "$ROOTPART")"
+        ;;
+    *)
+        ROOTDEV="$ROOTPART"
+        ;;
 esac
 
-# --- 3. ФС ---
-printf "ФС [ext4/btrfs] (ext4): "; read -r FS; FS="${FS:-ext4}"
+# --- 4. ФС root ---
+if [ -n "$(fs_of "$ROOTDEV")" ]; then
+    warn "на $ROOTDEV уже есть $(fs_of "$ROOTDEV") — установка её сотрёт"
+    ask "Продолжить и отформатировать? [y/N]: " OK
+    case "$OK" in y|Y|yes) ;; *) die "отменено" ;; esac
+fi
+ask "ФС root [ext4/btrfs] (ext4): " FS
+FS="${FS:-ext4}"
 case "$FS" in
-  ext4) mkfs.ext4 -q "$ROOTDEV" ;;
-  btrfs) mkfs.btrfs -q "$ROOTDEV" ;;
-  *) die "неизвестная ФС" ;;
+    ext4)  mkfs.ext4 -q "$ROOTDEV" ;;
+    btrfs) mkfs.btrfs -q "$ROOTDEV" ;;
+    *) die "неизвестная ФС: $FS" ;;
 esac
 
-# --- 4. mount root + EFI ---
+# --- 5. mount root + EFI ---
 mkdir -p "$MNT"
-mount "$ROOTDEV" "$MNT"
-printf "EFI-раздел (напр. ${DISK}1): "; read -r EFIPART
-[ -b "$EFIPART" ] || die "$EFIPART нет"
+mount "$ROOTDEV" "$MNT" || die "не удалось смонтировать $ROOTDEV в $MNT"
 mkdir -p "$MNT/boot"
-mount "$EFIPART" "$MNT/boot"
+mount "$EFIPART" "$MNT/boot" || die "не удалось смонтировать $EFIPART в $MNT/boot ($(fs_of "$EFIPART"))"
 
-# --- 5. распаковка rootfs ---
+# --- 6. распаковка rootfs ---
 echo "распаковка rootfs..."
 zstd -dc "$ROOTFS" | tar -x -C "$MNT"
 
 # rootfs.tar.zst без виртуальных точек — создаём их
 mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run" "$MNT/tmp" "$MNT/var/tmp"
 
-# --- 6. виртуальные ФС ---
-mount --bind /dev "$MNT/dev"
+# --- 7. виртуальные ФС ---
+mount --bind /dev  "$MNT/dev"
 mount --bind /proc "$MNT/proc"
-mount --bind /sys "$MNT/sys"
+mount --bind /sys  "$MNT/sys"
 cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 
-# UUID для fstab/cmdline
 ROOT_UUID="$(blkid -s UUID -o value "$ROOTDEV")"
+[ -n "$ROOT_UUID" ] || die "не удалось получить UUID $ROOTDEV"
 
-# --- 7. chroot-настройка ---
-chroot "$MNT" /bin/sh -eu - "$ROOT_UUID" "$LUKS_UUID" "$ROOTDEV" <<'EOF'
-ROOT_UUID="$1"; LUKS_UUID="$2"; ROOTDEV="$3"
+# --- 8. fstab (root + /boot) ---
+cat > "$MNT/etc/fstab" <<EOF
+UUID=$ROOT_UUID	/	$FS	defaults	0 1
+UUID=$EFI_UUID	/boot	vfat	defaults	0 2
+EOF
+
+# --- 9. chroot-настройка ---
+chroot "$MNT" /bin/sh -eu - "$ROOT_UUID" "$LUKS_UUID" <<'EOF'
+ROOT_UUID="$1"; LUKS_UUID="$2"
 
 meow sync
 meow install -y linux dracut systemd-boot
 
-# hostname
+# версия установленного ядра -> имена файлов для systemd-boot
+KVER="$(ls /usr/lib/modules | sort -V | tail -1)"
+[ -n "$KVER" ] || { echo "meow-install: ядро не установилось" >&2; exit 1; }
+[ -f "/boot/vmlinuz-$KVER" ] || { echo "meow-install: нет /boot/vmlinuz-$KVER" >&2; exit 1; }
+
 printf "Hostname: "; read -r HN; echo "$HN" > /etc/hostname
 
-# root
 passwd root
 
-# пользователь в wheel
 printf "Пользователь: "; read -r USER
 useradd -m -G wheel "$USER"
 passwd "$USER"
 
-# doas или sudo
 printf "escalation [doas/sudo] (doas): "; read -r ESC; ESC="${ESC:-doas}"
 if [ "$ESC" = "sudo" ]; then
     meow install -y sudo
@@ -94,30 +148,23 @@ else
     ln -sf /usr/bin/doas /usr/bin/sudo
 fi
 
-# fstab
-{
-  echo "UUID=$ROOT_UUID / $( [ -n "$LUKS_UUID" ] && echo ext4 || echo auto ) defaults 0 1"
-} > /etc/fstab
-
-# initramfs (crypt hook если LUKS)
 if [ -n "$LUKS_UUID" ]; then
-    dracut --force --add crypt
+    dracut -N --force --add crypt /boot/initramfs.img "$KVER"
 else
-    dracut --force
+    dracut -N --force /boot/initramfs.img "$KVER"
 fi
 
-# systemd-boot
 bootctl install
-mkdir -p /boot/loader/entries
 printf 'default meow\ntimeout 3\n' > /boot/loader/loader.conf
 if [ -n "$LUKS_UUID" ]; then
-  OPTIONS="rd.luks.name=$LUKS_UUID=cryptroot root=/dev/mapper/cryptroot rw"
+    OPTIONS="rd.luks.name=$LUKS_UUID=cryptroot root=/dev/mapper/cryptroot rw"
 else
-  OPTIONS="root=UUID=$ROOT_UUID rw"
+    OPTIONS="root=UUID=$ROOT_UUID rw"
 fi
-printf 'title Meow Linux\nlinux /vmlinuz\ninitrd /initramfs.img\noptions %s\n' "$OPTIONS" \
-  > /boot/loader/entries/meow.conf
+printf 'title Meow Linux\nlinux /vmlinuz-%s\ninitrd /initramfs.img\noptions %s\n' \
+    "$KVER" "$OPTIONS" > /boot/loader/entries/meow.conf
 EOF
 
-umount -R "$MNT" 2>/dev/null || true
-echo "Готово. Перезагрузись и вынь носитель."
+cleanup
+trap - EXIT INT TERM
+echo "Готово. Перезагрузи и вынь носитель."
