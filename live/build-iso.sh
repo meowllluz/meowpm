@@ -31,6 +31,11 @@ echo 'LANG=C' > /etc/locale.conf
 echo 'root:meow' | chpasswd -c SHA512
 EOF
 
+# включить сервисы по умолчанию: dbus (нужен iwd), iwd (wifi), dhcpcd (сеть/DNS), seatd
+for s in dbus iwd dhcpcd seatd; do
+    ln -sf "/etc/sv/$s" "$WORK/etc/runit/runsvdir/default/$s"
+done
+
 # --- 2. initramfs через dracut (dmsquash-live монтирует squashfs по label) ---
 echo "== 2/5 initramfs (dracut dmsquash-live) =="
 KVER="$(ls "$WORK/usr/lib/modules" | head -1)"
