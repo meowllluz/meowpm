@@ -180,6 +180,9 @@ LUKS_UUID="${MEOW_LUKS_UUID:-}"
 
 meow sync
 meow install -y linux dracut systemd-boot
+# meow runs no post-install hooks on purpose: the linker cache must be refreshed
+# by hand, otherwise freshly installed libraries are not in /etc/ld.so.cache
+ldconfig
 
 # installed kernel version -> file names for the systemd-boot entry
 KVER="$(ls /usr/lib/modules | sort -V | tail -1)"
@@ -251,3 +254,13 @@ cleanup
 trap - EXIT INT TERM
 echo
 echo "Done. Reboot and remove the installation medium."
+echo
+echo "Bootloader was installed automatically (systemd-boot + loader entry)."
+echo "If the machine still refuses to boot, from the live ISO:"
+echo "  mount <root-partition> /mnt"
+echo "  mount <efi-partition> /mnt/boot"
+echo "  mount --bind /dev /mnt/dev && mount --bind /proc /mnt/proc && mount --bind /sys /mnt/sys"
+echo "  mount -t efivarfs efivarfs /sys/firmware/efi/efivars"
+echo "  chroot /mnt bootctl install"
+echo "  chroot /mnt dracut --force /boot/initramfs.img <kernel-version>"
+echo "  cat /boot/loader/entries/meow.conf   # linux /vmlinuz-<ver>, initrd /initramfs.img"
