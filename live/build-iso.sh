@@ -1,5 +1,6 @@
 #!/bin/sh
-# Meow Linux — сборка live ISO (UEFI, systemd-boot).
+# Meow Linux — сборка live ISO (UEFI, systemd-boot, dracut initramfs + dmsquash-live).
+# dracut сам кладёт модули (squashfs/overlay/vfat/iso9660/device-mapper) в initramfs.
 # Требует root (chroot + mkfs + mount). Запуск: sudo ./live/build-iso.sh
 set -eu
 
@@ -11,12 +12,10 @@ ROOTFS_TAR="$MEOW_DIR/rootfs.tar.zst"
 
 [ -f "$ROOTFS_TAR" ] || { echo "нет $ROOTFS_TAR — сначала собери rootfs"; exit 1; }
 
-# --- 1. live rootfs = установочный rootfs + live-пакеты ---
+# --- 1. live rootfs = установочный rootfs + live-пакеты (включая dracut) ---
 echo "== 1/5 live rootfs =="
 rm -rf "$WORK"; mkdir -p "$WORK"
 zstd -dc "$ROOTFS_TAR" | tar -x -C "$WORK"
-
-# rootfs.tar.zst запакован БЕЗ dev/proc/sys/run/tmp — создаём точки заново
 mkdir -p "$WORK/dev" "$WORK/proc" "$WORK/sys" "$WORK/run" "$WORK/tmp" "$WORK/var/tmp"
 
 mount --bind /dev "$WORK/dev"; mount --bind /proc "$WORK/proc"; mount --bind /sys "$WORK/sys"
@@ -27,75 +26,51 @@ cp "$ROOTFS_TAR" "$WORK/rootfs.tar.zst"
 
 chroot "$WORK" /bin/sh -eu <<'EOF'
 meow sync
-meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup busybox-static systemd-boot
+meow install -y linux iwd dbus seatd wpa_supplicant squashfs-tools cryptsetup systemd-boot dracut device-mapper
 echo 'LANG=C' > /etc/locale.conf
 EOF
+
+# --- 2. initramfs через dracut (dmsquash-live монтирует squashfs по label) ---
+echo "== 2/5 initramfs (dracut dmsquash-live) =="
+KVER="$(ls "$WORK/usr/lib/modules" | head -1)"
+chroot "$WORK" /usr/bin/dracut --force --add "dmsquash-live" "/boot/initrd" "$KVER"
+
 umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
-# --- 2. squashfs ---
-echo "== 2/5 squashfs =="
-rm -f "$LIVE_DIR/root.squashfs"
-mksquashfs "$WORK" "$LIVE_DIR/root.squashfs" -comp zstd -noappend
+# --- 3. squashfs → LiveOS/squashfs.img (dmsquash-live ожидает его там) ---
+echo "== 3/5 squashfs =="
+mkdir -p "$LIVE_DIR/.iso/LiveOS"
+rm -f "$LIVE_DIR/.iso/LiveOS/squashfs.img"
+mksquashfs "$WORK" "$LIVE_DIR/.iso/LiveOS/squashfs.img" -comp zstd -noappend
 
-# --- 3. initramfs: /init = static C (mount + exec busybox sh /init.sh) ---
-echo "== 3/5 initramfs =="
-BB="$WORK/usr/bin/busybox.static"
-[ -e "$BB" ] || BB="$(find "$WORK" -name 'busybox.static' -type f 2>/dev/null | head -1)"
-[ -n "$BB" ] || { echo "нет busybox static"; exit 1; }
-gcc -static -O2 -s "$LIVE_DIR/init.c" -o "$LIVE_DIR/init.bin" || { echo "gcc static не собрал init"; exit 1; }
-IR="/tmp/meow-initramfs"; rm -rf "$IR"
-mkdir -p "$IR/bin" "$IR/proc" "$IR/sys" "$IR/dev" "$IR/run"
-cp "$BB" "$IR/bin/busybox"
-cp "$LIVE_DIR/init.bin" "$IR/init"; chmod +x "$IR/init"
-for a in sh mount umount mkdir switch_root; do ln -sf /bin/busybox "$IR/bin/$a"; done
-cp "$LIVE_DIR/init" "$IR/init.sh"; chmod +x "$IR/init.sh"
-
-# модули ядра (squashfs/overlay/vfat/iso9660/loop) — распаковываем в initramfs
-MODDIR="$WORK/usr/lib/modules/$(ls "$WORK/usr/lib/modules" | head -1)"
-mkdir -p "$IR/lib/modules"
-for m in fat vfat cdrom isofs loop squashfs overlay; do
-    case "$m" in
-      fat|vfat) p="kernel/fs/fat/$m.ko.zst" ;;
-      cdrom)    p="kernel/drivers/cdrom/cdrom.ko.zst" ;;
-      loop)     p="kernel/drivers/block/loop.ko.zst" ;;
-      isofs)    p="kernel/fs/isofs/isofs.ko.zst" ;;
-      squashfs) p="kernel/fs/squashfs/squashfs.ko.zst" ;;
-      overlay)  p="kernel/fs/overlayfs/overlay.ko.zst" ;;
-    esac
-    [ -f "$MODDIR/$p" ] && zstd -dc "$MODDIR/$p" > "$IR/lib/modules/$m.ko" 2>/dev/null
-done
-(cd "$IR" && find . | cpio -o -H newc 2>/dev/null | zstd -f -o "$LIVE_DIR/initramfs.img")
-rm -rf "$IR"
-
-# --- 4. ядро + systemd-boot ---
+# --- 4. ядро + initrd + systemd-boot ---
 echo "== 4/5 ядро + bootloader =="
 KERNEL="$(ls "$WORK"/boot/vmlinuz-* 2>/dev/null | head -1)"
-[ -n "$KERNEL" ] || { echo "нет ядра (vmlinuz) в live rootfs"; exit 1; }
-SDBOOT="$(find "$WORK" -name 'systemd-bootx64.efi' 2>/dev/null | head -1)"
+[ -n "$KERNEL" ] || { echo "нет ядра (vmlinuz)"; exit 1; }
+INITRD="$WORK/boot/initrd"
+[ -f "$INITRD" ] || { echo "нет initrd"; exit 1; }
+SDBOOT="$(find "$WORK" -name 'systemd-bootx64.efi' | head -1)"
 [ -n "$SDBOOT" ] || { echo "нет systemd-bootx64.efi"; exit 1; }
 
 # --- 5. ISO (UEFI) ---
 echo "== 5/5 ISO =="
-ISO="$LIVE_DIR/.iso"; rm -rf "$ISO"; mkdir -p "$ISO"
+ISO="$LIVE_DIR/.iso"
+cp "$KERNEL" "$ISO/vmlinuz"
+cp "$INITRD" "$ISO/initrd"
 
-# loader-конфиги (временные файлы для mcopy)
 LCONF="$LIVE_DIR/.loader.conf"; ECONF="$LIVE_DIR/.meow.conf"
 printf 'default meow\ntimeout 3\n' > "$LCONF"
-printf 'title Meow Linux (live)\nlinux /vmlinuz\ninitrd /initramfs.img\noptions rw\n' > "$ECONF"
+printf 'title Meow Linux (live)\nlinux /vmlinuz\ninitrd /initrd\noptions root=live:LABEL=MEOW_LIVE rw LANG=C\n' > "$ECONF"
 
-# efiboot.img (ESP): только bootloader + ядро + initramfs (НЕ squashfs)
 EFI="$LIVE_DIR/efiboot.img"; rm -f "$EFI"
 dd if=/dev/zero of="$EFI" bs=1M count=64 status=none
 mkfs.vfat -n MEOW_EFI "$EFI" >/dev/null
 mmd -i "$EFI" ::EFI ::EFI/BOOT ::loader ::loader/entries
 mcopy -i "$EFI" "$SDBOOT" ::EFI/BOOT/BOOTX64.EFI
 mcopy -i "$EFI" "$KERNEL" ::vmlinuz
-mcopy -i "$EFI" "$LIVE_DIR/initramfs.img" ::initramfs.img
+mcopy -i "$EFI" "$INITRD" ::initrd
 mcopy -i "$EFI" "$LCONF" ::loader/loader.conf
 mcopy -i "$EFI" "$ECONF" ::loader/entries/meow.conf
-
-# root.squashfs кладём на ISO (ISO9660); live-init найдёт его через /dev/sr0
-cp "$LIVE_DIR/root.squashfs" "$ISO/root.squashfs"
 
 xorriso -as mkisofs -iso-level 3 -V MEOW_LIVE -e efiboot.img -no-emul-boot -isohybrid-gpt-basdat -o "$ISO_OUT" "$EFI" "$ISO"
 rm -f "$LCONF" "$ECONF"
