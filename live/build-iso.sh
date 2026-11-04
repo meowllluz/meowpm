@@ -39,6 +39,7 @@ umount "$WORK/dev" "$WORK/proc" "$WORK/sys"
 
 # --- 3. squashfs → LiveOS/squashfs.img (dmsquash-live ожидает его там) ---
 echo "== 3/5 squashfs =="
+rm -rf "$LIVE_DIR/.iso"
 mkdir -p "$LIVE_DIR/.iso/LiveOS"
 rm -f "$LIVE_DIR/.iso/LiveOS/squashfs.img"
 mksquashfs "$WORK" "$LIVE_DIR/.iso/LiveOS/squashfs.img" -comp zstd -noappend
