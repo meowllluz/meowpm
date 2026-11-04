@@ -73,7 +73,7 @@ echo "   проверка архива:"
 ARCHIVE="$MEOW_DIR/rootfs.tar.zst"
 LIST="$(zstd -dc "$ARCHIVE" | tar -tvf -)"
 BAD_OWNER="$(printf '%s\n' "$LIST" | awk '$2 != "0/0" {c++} END {print c+0}')"
-SUID="$(printf '%s\n' "$LIST" | awk '$1 ~ /^.[-]/ && $1 ~ /s/ {c++} END {print c+0}')"
+SUID="$(printf '%s\n' "$LIST" | awk '$1 ~ /^-/ && $1 ~ /s/ {c++} END {print c+0}')"
 for f in ./etc/shadow ./etc/passwd ./etc/group ./usr/bin/meow; do
     printf '%s\n' "$LIST" | grep -qx "$f.*" || { echo "build-rootfs: в архиве нет $f" >&2; exit 1; }
 done

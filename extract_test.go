@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"howett.net/plist"
@@ -79,5 +80,40 @@ func TestModeBitsPreserved(t *testing.T) {
 		if got := permBits(c.mode); got != c.mode&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) {
 			t.Errorf("permBits(%v) = %v", c.mode, got)
 		}
+	}
+}
+
+// place() должен выставить setuid на месте назначения (doas/passwd/su).
+// Каталог создаём рядом с пакетом, а не в TMPDIR: /tmp часто смонтирован nosuid,
+// и тогда setuid срезается ядром, а не нашим кодом.
+func TestPlacePreservesSetuid(t *testing.T) {
+	dir, err := os.MkdirTemp(".", "modetest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(src, 0755|os.ModeSetuid); err != nil {
+		t.Skipf("chmod setuid недоступен: %v", err)
+	}
+	if st, err := os.Lstat(src); err != nil || st.Mode()&os.ModeSetuid == 0 {
+		t.Skip("файловая система не сохраняет setuid (nosuid)")
+	}
+	dst := filepath.Join(dir, "out", "dst")
+	if err := place(src, dst); err != nil {
+		t.Fatalf("place: %v", err)
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode()&os.ModeSetuid == 0 {
+		t.Errorf("setuid потерян: mode=%v", st.Mode())
+	}
+	if got := st.Mode().Perm(); got != 0755 {
+		t.Errorf("perm=%o want 755", got)
 	}
 }

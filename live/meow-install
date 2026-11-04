@@ -32,7 +32,7 @@ done
 echo "проверка $ROOTFS..."
 ARCHIVE_LIST="$(zstd -dc "$ROOTFS" | tar -tvf - 2>/dev/null)" || die "не читается $ROOTFS"
 BAD_OWNER="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$2 != "0/0" {c++} END {print c+0}')"
-SUID_COUNT="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$1 ~ /^.[-]/ && $1 ~ /s/ {c++} END {print c+0}')"
+SUID_COUNT="$(printf '%s\n' "$ARCHIVE_LIST" | awk '$1 ~ /^-/ && $1 ~ /s/ {c++} END {print c+0}')"
 [ "$BAD_OWNER" = 0 ] || die "rootfs.tar.zst собран не от root ($BAD_OWNER записей с чужим владельцем).
   Пересобери образ: sudo ./scripts/build-rootfs.sh (он пакует архив с --owner=0 --group=0)"
 [ "$SUID_COUNT" -ge 3 ] || die "в rootfs.tar.zst нет setuid-битов ($SUID_COUNT) — su/doas/passwd не заработают.
