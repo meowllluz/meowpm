@@ -56,11 +56,16 @@ mkdir -p "$ROOT/etc/meow"
 printf 'REPO_MAIN=%s\nARCH=x86_64\nESCALATOR=doas\n' "$REPO" > "$ROOT/etc/meow/pm.conf"
 chroot "$ROOT" /usr/bin/meow remove -R -y xbps
 
+# без индекса репозитория install не находит пакеты ("dependency 'doas' not found")
+echo "   индекс репозитория (meow sync)"
+chroot "$ROOT" /usr/bin/meow sync
+
 # doas вместо sudo: в базовом Void стоит sudo, doas ставим сами,
 # sudo остаётся только симлинком на doas (совместимость со скриптами).
 chroot "$ROOT" /usr/bin/meow install -y doas
 if chroot "$ROOT" /usr/bin/meow list | grep -q '^sudo '; then
-    chroot "$ROOT" /usr/bin/meow remove -y sudo
+    chroot "$ROOT" /usr/bin/meow remove -y sudo \
+        || echo "   внимание: sudo не удалился, заменяю симлинком"
 fi
 ln -sf /usr/bin/doas "$ROOT/usr/bin/sudo"
 printf 'permit persist :wheel\n' > "$ROOT/etc/doas.conf"
